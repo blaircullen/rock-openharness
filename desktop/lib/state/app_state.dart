@@ -546,6 +546,10 @@ class AppNotifier extends ChangeNotifier {
   // Delivery deduplication only. The daemon owns notification eligibility for
   // both desktop and device; a raw turn_ended is not a completed result.
   final Set<String> _deliveredNotifications = {};
+  // Read receipts suppress a restored question's notification, never the
+  // question itself. A matching close or replacement gives the next one a
+  // fresh identity; reconnecting the same question keeps it read.
+  final Map<String, String> _readQuestionNotifications = {};
 
   AppConfig config;
   late ApiClient api;
@@ -7310,7 +7314,25 @@ class AppNotifier extends ChangeNotifier {
         agentUnread.readTokenFor(machineId, agentId) != readToken) {
       return;
     }
+    final question = questionFor(machineId, agentId);
+    if (question != null) {
+      final key = AgentUnread.keyFor(machineId, agentId);
+      _readQuestionNotifications
+        ..remove(key)
+        ..[key] = question.requestId;
+      while (_readQuestionNotifications.length > AgentUnread.capacity) {
+        _readQuestionNotifications.remove(_readQuestionNotifications.keys.first);
+      }
+    }
     _forgetUnread(machineId, agentId);
+    if (question != null) notifyListeners();
+  }
+
+  bool questionNotificationRead(String machineId, String agentId) {
+    final question = questionFor(machineId, agentId);
+    return question != null &&
+        _readQuestionNotifications[AgentUnread.keyFor(machineId, agentId)] ==
+            question.requestId;
   }
 
   /// Tell the daemon this harness has been looked at, so the dial drops its
@@ -12799,7 +12821,10 @@ class AppNotifier extends ChangeNotifier {
         break;
       case 'agent_deleted':
         final goneId = _eventAgentId(machine, event, payload);
-        if (goneId != null) agentUnread.forget(machineId, goneId);
+        if (goneId != null) {
+          agentUnread.forget(machineId, goneId);
+          _readQuestionNotifications.remove(AgentUnread.keyFor(machineId, goneId));
+        }
         final agentId = _eventAgentId(machine, event, payload);
         if (agentId != null) {
           await _removeAgent(machine, agentId);
@@ -12844,7 +12869,10 @@ class AppNotifier extends ChangeNotifier {
             // Only a NEW question earns a sound. The daemon re-announces every open one after a
             // reconnect and when attaching to a turn that was already mid-dialog, and a window
             // that beeped at those would sound an alarm every time the network hiccuped.
-            if (!repeat) _raiseAlert(machine, agentId, AlertKind.needsYou);
+            if (!repeat && !questionNotificationRead(machineId, agentId)) {
+              _readQuestionNotifications.remove(AgentUnread.keyFor(machineId, agentId));
+              _raiseAlert(machine, agentId, AlertKind.needsYou);
+            }
           }
         }
         break;
@@ -12858,6 +12886,7 @@ class AppNotifier extends ChangeNotifier {
           final open = machine.blockedAgents[agentId];
           if (open != null && open.requestId == requestId) {
             machine.blockedAgents.remove(agentId);
+            _readQuestionNotifications.remove(AgentUnread.keyFor(machineId, agentId));
             // An old question close cannot erase a newer completed result.
             if (agentUnread.kindFor(machineId, agentId) == AlertKind.needsYou) {
               _forgetUnread(machineId, agentId);

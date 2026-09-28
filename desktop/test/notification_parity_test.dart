@@ -11,6 +11,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/notify/alert_sounds.dart';
 import 'package:harness/state/app_state.dart';
+import 'package:harness/state/notification_inbox.dart';
 import 'package:harness/ws/ws_conn.dart';
 
 import 'swarm_state_test.dart' show createApp;
@@ -122,6 +123,18 @@ void main() {
       await readFromDial('a1', token);
       expect(app.agentUnread.count, 0);
       expect(app.machineStates['m']!.blockedAgents['a1'], same(pending));
+      expect(notificationInbox(app), isEmpty);
+      await question('a1');
+      expect(notificationInbox(app), isEmpty);
+      app.machineStates['m']!.blockedAgents.clear(); // Reconnect restores it.
+      await question('a1');
+      expect(app.agentUnread.count, 0);
+      expect(notificationInbox(app), isEmpty);
+      await answered('a1');
+      await question('a1'); // A later occurrence can ask the same words.
+      expect(app.agentUnread.count, 1);
+      expect(notificationInbox(app), hasLength(1));
+      expect(app.agentUnread.readTokenFor('m', 'a1'), isNot(token));
     },
   );
 

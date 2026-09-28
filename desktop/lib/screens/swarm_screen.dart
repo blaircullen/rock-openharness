@@ -5240,14 +5240,20 @@ class _SwarmScreenState extends State<SwarmScreen> {
             )
             .firstOrNull;
         if (destination == null) return false;
+        final readToken = app.agentUnread.readTokenFor(row.machineId, row.agentId);
+        final questionId = app.questionFor(row.machineId, row.agentId)?.requestId;
         final opened = await activateSwarmDestination(
           app,
           destination,
           destinationSwarmId: app.activeSwarmId,
         );
-        // Only successful navigation acknowledges a result. Questions remain
-        // pending until the daemon confirms they have been answered.
-        if (opened) app.markAgentSeen(row.machineId, row.agentId);
+        // Opening acknowledges this notification. Its question stays pending
+        // until the daemon confirms an answer, independently of unread state.
+        if (opened &&
+            app.agentUnread.readTokenFor(row.machineId, row.agentId) == readToken &&
+            app.questionFor(row.machineId, row.agentId)?.requestId == questionId) {
+          app.readAgentNotification(row.machineId, row.agentId, readToken: readToken);
+        }
         return opened;
       },
     );

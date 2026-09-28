@@ -412,3 +412,13 @@ The dial holds at most 24 receipts in RAM, retries each at most every two second
 and reserves the last action slot for touch/audio. It writes neither flash nor
 extra frames when idle. Reconnect snapshots recover a lost receipt. This protocol
 requires the matching desktop and CLI update; older hosts keep local-only reads.
+
+The desktop also remembers which pending question notification was explicitly
+read. A reconnect can restore the question without bringing back its bell entry;
+a matching answer or a new question resets that receipt. Both the native and
+Flutter desktop inbox acknowledge a successful Open the same way as a device
+read, while stale navigation and read tokens leave a newer message unread.
+
+Actual native renderer output, using test fixture content:
+
+![Hold-to-switch tabs and notification states](assets/tabs-notifications-20260928.png)

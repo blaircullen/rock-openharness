@@ -38,7 +38,8 @@ List<InboxNotification> notificationInbox(AppNotifier app) {
   // Questions survive a reconnect and remain actionable even if an old unread
   // mark was evicted. Merely opening this list never acknowledges a question.
   for (final row in harnessSessions(app)) {
-    if (row.needsInput) {
+    if (row.needsInput &&
+        !app.questionNotificationRead(row.machineId, row.agent.id)) {
       kinds[(row.machineId, row.agent.id)] = AlertKind.needsYou;
     }
   }
