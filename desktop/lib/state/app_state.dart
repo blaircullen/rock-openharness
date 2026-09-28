@@ -2554,6 +2554,7 @@ class AppNotifier extends ChangeNotifier {
           'agentId': mark.agentId,
           'machineId': mark.machineId,
           'question': mark.kind == AlertKind.needsYou,
+          'readToken': agentUnread.readTokenFor(mark.machineId, mark.agentId),
           // A QUESTION'S OWN WORDS, because nobody else has them. The daemon
           // fills in the recap for a finished turn from what it summarised, but
           // an open question lives here — in `blockedAgents` — and a dial that
@@ -7288,25 +7289,39 @@ class AppNotifier extends ChangeNotifier {
   /// row for it too. Silent when there was no mark.
   void _forgetUnread(String machineId, String agentId) {
     if (agentUnread.kindFor(machineId, agentId) == null) return;
+    final readToken = agentUnread.readTokenFor(machineId, agentId);
     agentUnread.clear(machineId, agentId);
     // Notification Center would otherwise keep saying "Finished" about an agent
     // the person has already gone and looked at.
     systemNotifications.withdraw(machineId, agentId);
-    _announceAgentSeen(machineId, agentId);
+    agentAlerts.dismiss(
+      AgentAlert(
+        machineId: machineId, agentId: agentId,
+        title: '', kind: AlertKind.done, at: DateTime.now(),
+      ),
+    );
+    _announceAgentSeen(machineId, agentId, readToken);
+  }
+
+  /// Reading is not answering. A device receipt clears only the exact message
+  /// it displayed; the pending question and all pane/focus state remain intact.
+  void readAgentNotification(String machineId, String agentId, {String? readToken}) {
+    if (readToken != null &&
+        agentUnread.readTokenFor(machineId, agentId) != readToken) {
+      return;
+    }
+    _forgetUnread(machineId, agentId);
   }
 
   /// Tell the daemon this harness has been looked at, so the dial drops its
   /// drawer row for it.
   ///
-  /// The two screens take a notification away on different gestures — a tap on
-  /// the dial, a tab coming to the front here — and each has to reach the other
-  /// or the two numbers part company the first time either is used. The dial's
-  /// half already travels: a tap sends `agent.open`, which brings the harness
-  /// forward here, and the sweep above clears it as anything else would.
+  /// Device reads arrive separately from pane-open actions. Both converge on
+  /// the same unread state, which is broadcast to every attached dial.
   ///
   /// Guarded by the caller on "there was a mark", so an ordinary tab switch
   /// does not put a frame on every socket.
-  void _announceAgentSeen(String machineId, String agentId) {
+  void _announceAgentSeen(String machineId, String agentId, String? readToken) {
     // No transport at all — a window still booting, or a plain `test()` with no
     // live pool. `_conn` asserts one exists rather than answering null, which
     // is right for the paths that cannot proceed without it and wrong for a
@@ -7318,7 +7333,9 @@ class AppNotifier extends ChangeNotifier {
     try {
       unawaited(
         _conn(machineId)
-            .sendTerminalFrame('agent_seen', {'agentId': agentId})
+            .sendTerminalFrame('agent_seen', {
+              'agentId': agentId, 'readToken': ?readToken,
+            })
             .catchError((_) => false),
       );
     } on StateError {
@@ -7364,7 +7381,7 @@ class AppNotifier extends ChangeNotifier {
     final agent = machine.agents.where((a) => a.id == agentId).firstOrNull;
     // Before the banner and outside its switch: the mark is what the window can
     // still say when somebody has turned the interrupting halves off.
-    agentUnread.mark(machine.machine.machineId, agentId, kind);
+    agentUnread.mark(machine.machine.machineId, agentId, kind, fresh: true);
     alerts.play(kind);
     final alert = AgentAlert(
       machineId: machine.machine.machineId,
@@ -7394,7 +7411,7 @@ class AppNotifier extends ChangeNotifier {
   /// Only an agent with no view at all is placed, on the current Swarm, in the
   /// same order [placeFork] uses for the same reason.
   Future<void> revealAgentFromAlert(String machineId, String agentId) async {
-    markAgentSeen(machineId, agentId);
+    readAgentNotification(machineId, agentId);
     systemNotifications.withdraw(machineId, agentId);
     agentAlerts.dismiss(
       AgentAlert(
@@ -12660,6 +12677,15 @@ class AppNotifier extends ChangeNotifier {
               appLog.warn('device', 'Could not reveal prepared agent: $error');
             }
           }());
+        }
+        break;
+      case 'dial_notification_read':
+        final readId = payload['agentId'];
+        final readMachine = payload['machineId'];
+        final readToken = payload['readToken'];
+        if (readId is String && readMachine is String &&
+            readToken is String && readToken.isNotEmpty) {
+          readAgentNotification(readMachine, readId, readToken: readToken);
         }
         break;
       case 'dial_open':

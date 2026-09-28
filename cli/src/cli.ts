@@ -4688,7 +4688,7 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     // The window looked at a harness, so the dial's drawer row for it is stale.
     // The dial's own tap already reaches the window (`agent.open`); this is the
     // return leg, and the pair is what keeps the badge and the pill equal.
-    onAgentSeen: (agentId) => { void cableRef?.agentSeen(agentId) },
+    onAgentSeen: (agentId, readToken) => { void cableRef?.agentSeen(agentId, readToken) },
     // Agents the window has a tile for. A finished turn on one of these is
     // already in front of the person, so the dial updates its tile in silence
     // rather than beeping about something being looked at.
@@ -6732,6 +6732,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     // than opening a tab, and an older window that does not know the field opens one as before.
     opened: (machineId, agentId, reason) =>
       backend.sendLocal({ type: 'dial_open', payload: { machineId, agentId, ...(reason ? { reason } : {}) } }),
+    notificationRead: (machineId, agentId, readToken) =>
+      backend.sendLocal({ type: 'dial_notification_read', payload: { machineId, agentId, readToken } }),
     forked: (machineId, agentId, sourceAgentId) => backend.sendLocal({ type: 'dial_forked', payload: { machineId, agentId, sourceAgentId } }),
     // The dial's Fork: the same path the window's `agent_fork` takes, then `forked` above lands on it.
     forkAgent: async (agentId) => {

@@ -27,7 +27,7 @@ code = r'''
 #include "../../cable_features.h"
 static bool cable_client_supports(uint32_t features) { (void)features; return true; }
 '''
-code += defines('ID_MAX','CABLE_NAME_MAX')
+code += defines('ID_MAX','CABLE_NAME_MAX','CABLE_READ_TOKEN_MAX')
 code += defines('QUESTION_MAX','OPTION_MAX','PANE_RESULT_BYTES','UI_FONT','Q_ROWS',source=source)
 code += source[source.index('typedef enum {'):source.index('typedef struct {\n    char id[ID_MAX], name[CABLE_NAME_MAX]')]
 code += source[source.index('typedef struct {\n    char key[256]'):source.index('static EXT_RAM_BSS_ATTR struct {')]

@@ -3,8 +3,62 @@
 #include <stdio.h>
 #include <string.h>
 
+static void carousel(void)
+{
+    ht_tab_carousel_t c={0};
+    ht_tab_carousel_reset(&c,0,0);
+    ht_tab_carousel_begin(&c,233,100);
+    assert(!c.touching && !ht_tab_carousel_end(&c,233,false,175));
+    for (int count=1;count<=24;count++) for(int i=0;i<count;i++) {
+        ht_tab_carousel_reset(&c,count,i);
+        assert(ht_tab_carousel_index(&c)==i);
+        ht_tab_carousel_begin(&c,233,100);
+        assert(ht_tab_carousel_end(&c,233,false,175)); // settled tap may select
+        // A slow drag follows the finger exactly, then settles to one neighbor.
+        ht_tab_carousel_begin(&c,413,1000);
+        ht_tab_carousel_move(&c,53,1300);
+        assert(c.position==(i+1<count ? (i+1)*HT_TAB_PITCH : i*HT_TAB_PITCH+90));
+        assert(!ht_tab_carousel_end(&c,53,true,1500));
+        int previous=c.position;
+        for(uint32_t t=1500;t<=1500+HT_TAB_SETTLE_MS;t+=16) {
+            ht_tab_carousel_tick(&c,t);
+            assert(c.position<=previous); previous=c.position;
+        }
+        assert(!c.animating && ht_tab_carousel_index(&c)==(i+1<count ? i+1 : i));
+        assert(!ht_tab_carousel_tick(&c,10000)); // no idle animation work
+    }
+    ht_tab_carousel_reset(&c,24,10);
+    ht_tab_carousel_begin(&c,390,UINT32_MAX-100);
+    ht_tab_carousel_move(&c,230,UINT32_MAX-40);
+    assert(!ht_tab_carousel_end(&c,130,true,20));
+    assert(c.animating && c.target>10*HT_TAB_PITCH && c.target<=12*HT_TAB_PITCH);
+    ht_tab_carousel_tick(&c,100);
+    // First touch is a brake, even if the settle deadline has just passed.
+    ht_tab_carousel_begin(&c,233,250);
+    assert(c.braking && !ht_tab_carousel_end(&c,233,false,325));
+    ht_tab_carousel_tick(&c,600);
+    ht_tab_carousel_begin(&c,233,700);
+    assert(ht_tab_carousel_end(&c,233,false,775));
+    ht_tab_carousel_begin(&c,233,1000);
+    ht_tab_carousel_move(&c,33,1080);
+    ht_tab_carousel_cancel(&c);
+    assert(!c.touching && !c.animating && !ht_tab_carousel_end(&c,33,true,1200));
+    // Reversing a drag cancels its travel; waiting removes stale fling velocity.
+    ht_tab_carousel_reset(&c,24,10);
+    ht_tab_carousel_begin(&c,233,2000);
+    ht_tab_carousel_move(&c,33,2080);
+    ht_tab_carousel_move(&c,233,2380);
+    assert(!ht_tab_carousel_end(&c,233,true,2600));
+    ht_tab_carousel_tick(&c,3000);
+    assert(ht_tab_carousel_index(&c)==10);
+    ht_tab_carousel_reset(&c,100,999);
+    assert(c.count==24 && ht_tab_carousel_index(&c)==23);
+    puts("tab carousel: finger tracking, bounded flicks, soft edges, settled taps, brake, cancel and clock wrap PASS");
+}
+
 int main(void)
 {
+    carousel();
     ht_workspace_t w={0};
     ht_workspace_touch(&w,1,4,233,410,100);
     assert(w.touching && w.choice==1);

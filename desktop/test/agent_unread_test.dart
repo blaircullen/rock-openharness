@@ -16,6 +16,26 @@ void main() {
     expect(unread.kindFor('m1', 'a1'), isNull);
   });
 
+  test(
+    'fresh same-kind events and app instances cannot reuse a read token',
+    () {
+      unread.mark('m1', 'a', AlertKind.done);
+      final first = unread.readTokenFor('m1', 'a');
+      unread.mark('m1', 'a', AlertKind.done);
+      expect(unread.readTokenFor('m1', 'a'), first);
+      unread.mark('m1', 'a', AlertKind.done, fresh: true);
+      final second = unread.readTokenFor('m1', 'a')!;
+      expect(second, isNot(first));
+      expect(second.length, lessThan(64));
+      expect(RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(second), isTrue);
+      final other = AgentUnread()..mark('m1', 'a', AlertKind.done);
+      expect(other.readTokenFor('m1', 'a'), isNot(second));
+      other.dispose();
+      unread.clear('m1', 'a');
+      expect(unread.readTokenFor('m1', 'a'), isNull);
+    },
+  );
+
   test('a mark says WHICH kind of news it is', () {
     unread.mark('m1', 'a1', AlertKind.done);
     expect(unread.kindFor('m1', 'a1'), AlertKind.done);

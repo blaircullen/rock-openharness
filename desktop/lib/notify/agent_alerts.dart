@@ -1,6 +1,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -158,6 +159,16 @@ class AgentUnread extends ChangeNotifier {
   static const capacity = 256;
 
   final _unread = <String, AlertKind>{};
+  final _tokens = <String, String>{};
+  final _epoch = List.generate(
+    12,
+    (_) => Random.secure().nextInt(256),
+  ).map((n) => n.toRadixString(16).padLeft(2, '0')).join();
+  int _sequence = 0;
+
+  /// Identity of the notification, not its text. Two turns can say the same thing.
+  String? readTokenFor(String machineId, String agentId) =>
+      _tokens[keyFor(machineId, agentId)];
 
   static String keyFor(String machineId, String agentId) =>
       '$machineId/$agentId';
@@ -192,9 +203,15 @@ class AgentUnread extends ChangeNotifier {
   /// Record that an agent did something. The NEWEST kind wins: an agent that
   /// finished and then asked a question is waiting on a person, and that is the
   /// mark worth showing.
-  void mark(String machineId, String agentId, AlertKind kind) {
+  void mark(
+    String machineId,
+    String agentId,
+    AlertKind kind, {
+    bool fresh = false,
+  }) {
     final key = keyFor(machineId, agentId);
-    if (_unread[key] == kind) return;
+    if (!fresh && _unread[key] == kind) return;
+    _tokens[key] = '$_epoch-${(++_sequence).toRadixString(36)}';
     // Re-inserted, not updated in place: an agent that moved is the newest
     // again, which is what makes the first key the oldest for the eviction
     // below. `notif_push` on the dial does exactly this — it lifts an existing
@@ -203,6 +220,7 @@ class AgentUnread extends ChangeNotifier {
       ..remove(key)
       ..[key] = kind;
     while (_unread.length > capacity) {
+      _tokens.remove(_unread.keys.first);
       _unread.remove(_unread.keys.first);
     }
     notifyListeners();
@@ -211,7 +229,9 @@ class AgentUnread extends ChangeNotifier {
   /// The person went and looked. Silent when there was nothing to clear, so a
   /// pane being focused for any other reason does not rebuild the window.
   void clear(String machineId, String agentId) {
-    if (_unread.remove(keyFor(machineId, agentId)) == null) return;
+    final key = keyFor(machineId, agentId);
+    if (_unread.remove(key) == null) return;
+    _tokens.remove(key);
     notifyListeners();
   }
 
@@ -222,6 +242,7 @@ class AgentUnread extends ChangeNotifier {
   void clearAll() {
     if (_unread.isEmpty) return;
     _unread.clear();
+    _tokens.clear();
     notifyListeners();
   }
 }

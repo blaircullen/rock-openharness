@@ -28,6 +28,7 @@ import { SerialLink, findDialPort } from './serial.js'
 import { PassageCarry, withCarriedPassage, type CarryRead } from './passageCarry.js'
 import { VoiceDraft, type DraftPin } from './voiceDraft.js'
 import { QuestionInbox, type ReviewedAnswer, type AnswerReceipt, type QuestionSpeech } from './questionInbox.js'
+import { notificationReadToken, type UnreadNotification } from './notificationRead.js'
 
 /** Bumped when the VOCABULARY changes. Separate from the frame version, which is the envelope. */
 export const CABLE_PROTO_VERSION = 3   // 3: + question.close (a question answered on another client)
@@ -284,6 +285,7 @@ export interface CableHost {
    * because a reconnect re-shows every unanswered question and each used to open a tab.
    */
   openAgent(agentId: string, reason?: OpenReason): void
+  readNotification?(agentId: string, readToken: string): void
   /** The dial asked for a fork of this agent — a second one with its history, opened in the window. */
   forkAgent(agentId: string): Promise<{ ok: true; agentId: string } | { ok: false; error: string; detail?: string }>
   /**
@@ -319,7 +321,7 @@ export interface CableHost {
   /** One agent's last turn summaries, newest first — what a reattached dial needs to redraw its tiles. */
   recentSummaries(agentId: string): Promise<Array<{ recap: string; text: string }>>
   /** What the window still has unread, newest first — replayed to a dial that has just attached. */
-  listUnread(): Array<{ agentId: string; machineId: string; question: boolean; text: string }>
+  listUnread(): UnreadNotification[]
   /**
    * The image to offer a dial running `runningVersion`, or null for "nothing to do" — which covers a
    * dial that is current, a dev build that must not be touched, and an unreachable manifest.
@@ -917,6 +919,12 @@ export class CableSession {
           this.host.focus(agentId)
         }
         return
+      case 'notif.read': {
+        const agentId = str('agentId')
+        const token = notificationReadToken(msg.readToken)
+        if (agentId && token) this.host.readNotification?.(agentId, token)
+        return
+      }
       case 'agent.open':
         // Only the one reason the window knows; anything else reads as a tap, the older frame's meaning.
         if (str('agentId')) this.host.openAgent(str('agentId')!, str('reason') === 'question' ? 'question' : undefined)
@@ -1913,7 +1921,7 @@ export class CableSession {
    * daemon already knows, so those never have a second source that can disagree.
    */
   async replaceNotifications(
-    items: Array<{ agentId: string; machineId: string; question: boolean; text: string }>,
+    items: UnreadNotification[],
   ): Promise<void> {
     const replay = { seen: new Set<string>() }
     this.notificationReplay = replay
@@ -1930,14 +1938,16 @@ export class CableSession {
           summary = summary ? extendShortRecap(summary, saved?.text ?? '') : saved?.recap ?? ''
         } catch { /* keep the supplied text if history cannot be read */ }
       }
-      return { agentId: item.agentId, name: who.name, machine: who.machine, summary, question: item.question }
+      return { agentId: item.agentId, name: who.name, machine: who.machine, summary, question: item.question,
+        ...(notificationReadToken(item.readToken) ? { readToken: item.readToken } : {}) }
     }))
     if (this.notificationReplay !== replay) return
     this.notificationReplay = undefined
     if (this.link !== link || this.stopped) return
-    // Seen completion rows stay cleared even if their history arrived late.
-    // Questions still require an answer; looking at one cannot dismiss it.
-    await this.send({ t: 'notif.replace', items: rows.filter(row => row.question || !replay.seen.has(row.agentId)) })
+    // Reading clears the notice, not the underlying question. Versioned clears
+    // cannot eat a newer turn whose history happened to take longer to load.
+    await this.send({ t: 'notif.replace', items: rows.filter(row =>
+      (row.question || !replay.seen.has(row.agentId)) && !replay.seen.has(`${row.agentId}\0${row.readToken}`)) })
   }
 
   /**
@@ -1950,10 +1960,11 @@ export class CableSession {
    * Fire and forget, like every other card: a dial that predates the message
    * counts it as unknown and drops it, which is the behaviour it has today.
    */
-  async agentSeen(agentId: string): Promise<void> {
+  async agentSeen(agentId: string, readToken?: string): Promise<void> {
     if (!agentId) return
-    this.notificationReplay?.seen.add(agentId)
-    await this.send({ t: 'notif.seen', agentId })
+    if (readToken !== undefined && !notificationReadToken(readToken)) return
+    this.notificationReplay?.seen.add(readToken ? `${agentId}\0${readToken}` : agentId)
+    await this.send({ t: 'notif.seen', agentId, ...(readToken ? { readToken } : {}) })
   }
   async turnError(agentId: string, message: string): Promise<void> {
     this.activityReads.delete(agentId)

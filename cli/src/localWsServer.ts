@@ -1,6 +1,7 @@
 import { SharingEndedError, type HarnessShareRelay } from './sharing/relay.js'
 import { randomUUID } from 'node:crypto'
 import type { AppSwarms } from './cable/cableSession.js'
+import { notificationReadToken, type UnreadNotification } from './cable/notificationRead.js'
 import type http from 'node:http'
 import type { Socket } from 'node:net'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
@@ -68,9 +69,9 @@ export interface LocalWsServerOptions {
   /** Every agent the window currently has a tile for, across all its machines. */
   onAppPanes?: (agentIds: string[], foreground: boolean) => void
   /** The window has looked at this harness — see the `agent_seen` case below. */
-  onAgentSeen?: (agentId: string) => void
+  onAgentSeen?: (agentId: string, readToken?: string) => void
   /** Everything the window still has unread, newest first — see the `app_unread` case below. */
-  onAppUnread?: (items: Array<{ agentId: string; machineId: string; question: boolean; text: string }>) => void
+  onAppUnread?: (items: UnreadNotification[]) => void
   /**
    * The window's swarms — its named groups of agents, one of them on screen. The whole list each time,
    * and `null` when the window goes away, so the daemon never keeps describing tabs nobody can see.
@@ -521,7 +522,11 @@ export function attachLocalWsServer(server: http.Server, options: LocalWsServerO
         if (!isBinary && options.onAgentSeen) {
           if (parsed?.type === 'agent_seen') {
             const agentId = (parsed.payload as Record<string, unknown> | undefined)?.agentId
-            if (typeof agentId === 'string' && agentId) options.onAgentSeen(agentId)
+            const rawToken = (parsed.payload as Record<string, unknown> | undefined)?.readToken
+            const readToken = notificationReadToken(rawToken)
+            // Invalid versioned receipts must not become unversioned clears.
+            if (rawToken !== undefined && !readToken) return
+            if (typeof agentId === 'string' && agentId) options.onAgentSeen(agentId, readToken)
             return
           }
         }
@@ -541,7 +546,8 @@ export function attachLocalWsServer(server: http.Server, options: LocalWsServerO
                   const machineId = item?.machineId
                   const text = typeof item?.text === 'string' ? item.text : ''
                   return typeof agentId === 'string' && agentId && typeof machineId === 'string'
-                    ? [{ agentId, machineId, question: item?.question === true, text }]
+                    ? [{ agentId, machineId, question: item?.question === true, text,
+                        ...(notificationReadToken(item?.readToken) ? { readToken: notificationReadToken(item?.readToken) } : {}) }]
                     : []
                 })
               : []

@@ -77,6 +77,23 @@ describe('local CLI WebSocket', () => {
     return `ws://127.0.0.1:${port}/api/local-ws`
   }
 
+  it('keeps notification identities on the local read and snapshot paths', async () => {
+    const backend = new FakeBackend(), seen = vi.fn(), unread = vi.fn()
+    const ws = new WebSocket(await start(backend, { onAgentSeen: seen, onAppUnread: unread }))
+    await onceOpen(ws)
+    const connected = onceMessage(ws)
+    ws.send(JSON.stringify({ type: 'machine_select', payload: { machineId, localProtocolVersion: 1 } }))
+    await connected
+    const item = { agentId: 'a', machineId: 'remote', question: true, text: 'Publish?', readToken: 'question-1' }
+    ws.send(JSON.stringify({ type: 'app_unread', payload: { items: [item] } }))
+    ws.send(JSON.stringify({ type: 'agent_seen', payload: { agentId: 'a', readToken: item.readToken } }))
+    for (const readToken of ['', 42, 'x'.repeat(64)]) ws.send(JSON.stringify({ type: 'agent_seen', payload: { agentId: 'a', readToken } }))
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledExactlyOnceWith('a', 'question-1'))
+    expect(unread).toHaveBeenCalledExactlyOnceWith([item])
+    expect(backend.frames).toEqual([])
+    ws.close()
+  })
+
   it('serves the same endpoint over the daemon socket, with no Host to name and no Origin allowed', async () => {
     const dir = mkdtempSync('/tmp/hsock-')
     const socketPath = join(dir, 'daemon.sock')

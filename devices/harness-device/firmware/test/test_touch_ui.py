@@ -38,7 +38,7 @@ code = r'''
 #include <stdio.h>
 '''
 # Keep real protocol capacities: a larger fake buffer can hide target truncation.
-code += defines('ID_MAX','CABLE_NAME_MAX','SWARM_ID_MAX','SWARMS_MAX','CABLE_MAX_AGENTS','MAX_PROJECTS')
+code += defines('CABLE_READ_TOKEN_MAX','ID_MAX','CABLE_NAME_MAX','SWARM_ID_MAX','SWARMS_MAX','CABLE_MAX_AGENTS','MAX_PROJECTS')
 code += defines('NOTICES','QUESTION_MAX','OPTION_MAX','PANE_MEMORY_MAX','UI_FONT','Q_ROWS','DRAFT_ROWS',source=source)
 if '#define PANE_RESULT_BYTES ' in source:
     code += defines('PANE_RESULT_BYTES', source=source)
@@ -48,11 +48,11 @@ code += typedef('cable_swarm_t') + typedef('cable_notif_t')
 code += r'''
 static struct {
     bool ready, locked, connected, loading, voice_open, voice_start_pending, voice_waiting, voice_carry, voice_review, voice_draft_append, voice_review_preview, voice_search;
-    bool quick_open, coasting, touch_brake, touch_down, touch_cancelled, pattern_error, lock_armed, quiet, nap, rim_enabled, focus_face, straight_title, muted;
+    bool coasting, touch_brake, touch_down, touch_cancelled, pattern_error, lock_armed, quiet, nap, rim_enabled, focus_face, straight_title, muted;
     int brightness;
     char pattern[32], voice_target[CABLE_NAME_MAX];
     int pattern_mask, pattern_len, view, voice_return, offset, active, count, pressed, hit_count;
-    int draft_drag, tab_drag, quick_choice, start_x, start_y, last_x, last_y, tab_count, machine_count, model_count, notice_count, pet_pose;
+    int draft_drag, tab_drag, start_x, start_y, last_x, last_y, tab_count, machine_count, model_count, notice_count, pet_pose;
     uint32_t touch_started, coast_until, character_activity, pet_until, last_celebration;
     uint32_t notice_sequence, voice_retry_until;
     uint8_t status_phase;
@@ -76,6 +76,7 @@ static ht_character_t character;
 static ht_character_caption_t home_caption;
 static ht_character_id_t test_character;
 static int character_saves, saved_character;
+static unsigned notice_reads_sent; static action_t notice_read_queued;
 static ht_scroll_t scroll;
 static ht_selection_t selection;
 static ht_carry_t carry;
@@ -88,6 +89,7 @@ static bool visit_emit(const ht_visit_command_t *c,void *ctx);
 static ht_form_t form;
 static ht_draft_t draft;
 static ht_workspace_t workspace;
+static ht_tab_carousel_t tab_carousel;
 static int tab_switches;
 static char tab_target[64];
 static action_t tab_queued;
@@ -172,6 +174,7 @@ static bool queue(action_t a) {
     if (a.kind==A_ANSWER) question_sends++;
     if (a.kind==A_TAB) { tab_switches++; COPY(tab_target,a.id); tab_queued=a; }
     if (a.kind==A_TAB_REFRESH) tab_queued=a;
+    if (a.kind==A_NOTICE_READ) { notice_reads_sent++; notice_read_queued=a; }
     if (a.kind==A_DESKTOP) { desktop_opens++; COPY(opened_agent,a.id); }
     return true;
 }
@@ -187,12 +190,12 @@ static bool scroll_emit(ht_scroll_phase_t phase, int dy, int velocity, void *ctx
 code += function('color')
 code += function('settings_item') + function('settings_count') + function('hit_contains')
 code += function('find')
-for name in ['copy', 'recap_preview', 'notice_unread', 'notice_was_read', 'notice_forget_read', 'notice_mark_read', 'habitat_scene_receipt', 'habitat_scene_presented', 'pane_memory', 'pane_memory_apply', 'dismiss_result', 'activity_text', 'ensure', 'input_cancel', 'view', 'notice_open', 'workspace_index', 'workspace_failed', 'ui_scroll_reportable', 'control', 'home_footer', 'footer_control', 'text', 'center', 'render_brand', 'heading', 'render_companion', 'choose_character', 'question_view', 'question_rows', 'question_move', 'question_text', 'render_question', 'render_choices', 'render_answer_review', 'question_answer', 'send_answer', 'make_action', 'character_mood', 'voice_status', 'home_caption_rotates', 'home_caption_tick', 'status_animated', 'status_speed', 'status_wake_ms', 'surface_tick', 'render_quick', 'command_face', 'render_workspace_preview', 'render_home', 'render_voice', 'render_selection', 'render_form', 'draft_move', 'render_draft', 'render_draft_options', 'ui_swarms_replace', 'ui_workspace_applied', 'ui_land_after_reload']:
+for name in ['copy', 'recap_preview', 'notice_unread', 'notice_was_read', 'notice_forget_read', 'notice_flush_reads', 'notice_mark_read', 'habitat_scene_receipt', 'habitat_scene_presented', 'pane_memory', 'pane_memory_apply', 'dismiss_result', 'activity_text', 'ensure', 'input_cancel', 'view', 'notice_open', 'workspace_index', 'tabs_open', 'workspace_failed', 'ui_scroll_reportable', 'control', 'home_footer', 'footer_control', 'text', 'center', 'render_brand', 'heading', 'render_companion', 'choose_character', 'question_view', 'question_rows', 'question_move', 'question_text', 'render_question', 'render_choices', 'render_answer_review', 'question_answer', 'send_answer', 'make_action', 'character_mood', 'voice_status', 'home_caption_rotates', 'home_caption_tick', 'status_animated', 'status_speed', 'status_wake_ms', 'surface_tick', 'command_face', 'render_workspace_preview', 'render_home', 'render_voice', 'render_selection', 'render_form', 'draft_move', 'render_draft', 'render_draft_options', 'ui_swarms_replace', 'ui_workspace_applied', 'ui_land_after_reload']:
     code += function(name)
 code += function('render_settings') + function('ui_visit_state')
 code += function('ui_project_known') + function('ui_focus_project') + function('ui_apply_pending_focus')
-code += function('render_agents') + function('tabs_move') + function('render_tabs') + function('page_controls') + function('render_notice') + function('render_list')
-for name in ['notice_remove', 'notice_sync_view', 'notice_selection', 'notice_restore_selection', 'notice_add', 'ui_notify_task_done', 'ui_notif_seen', 'ui_notif_replace', 'ui_notif_open', 'ui_question_close', 'ui_answer_receipt']:
+code += function('render_agents') + function('tabs_move') + function('tab_name') + function('render_tabs') + function('page_controls') + function('render_notice') + function('render_list')
+for name in ['notice_remove', 'notice_sync_view', 'notice_selection', 'notice_restore_selection', 'notice_add', 'ui_notify_task_done', 'ui_notif_seen', 'ui_notif_read', 'ui_notif_replace', 'ui_notif_open', 'ui_question_close', 'ui_answer_receipt']:
     code += function(name)
 for name in ['event', 'ui_project_emit', 'ui_project_restore_event', 'ui_project_clear_event', 'ui_project_set_name', 'ui_project_remove', 'ui_project_clear_all', 'ui_project_apply_order']:
     code += function(name)
@@ -275,6 +278,7 @@ static void scene_take(void) {
 static void reset(void) {
     host_features=31; fake_ms=0; fake_asleep=false; present_scene=true;
     memset(&visit,0,sizeof visit); visit_sends=visit_wire=returns=0; question_pending=false;
+    memset(&tab_carousel,0,sizeof tab_carousel);
     memset(&workspace,0,sizeof workspace); tab_switches=0; tab_target[0]=0;
     memset(&selection,0,sizeof(selection)); selections=0;
     memset(&carry,0,sizeof(carry)); carry_prepares=carry_drops=0; voice_context[0]=0;
@@ -286,7 +290,7 @@ static void reset(void) {
     strcpy(s.agents[0].name, "Deploy latest firmware"); strcpy(s.agents[1].name, "Agent B");
     recording = congestion = false; starts = stops = boops = switches = question_sends = 0;
     down_reports = moves = ups = travel = waiting_count = 0; target[0] = 0;
-    desktop_opens=0; opened_agent[0]=0;
+    desktop_opens=0; opened_agent[0]=0; notice_reads_sent=0;
     scene_take();
 }
 static void workspace_setup(void) {
@@ -309,6 +313,10 @@ static bool action_enabled(action_kind_t action) {
     return false;
 }
 static bool status_is(const char *text) {
+    if (!text[0]) {
+        for(int i=0;i<scene.count;i++) if(scene.runs[i].arc==2 || scene.runs[i].y==385 || scene.runs[i].y==HT_NOTIFICATION_Y) return false;
+        return true;
+    }
     char footer[32]="";
     for (int i=0;i<scene.count;i++) if(scene.runs[i].y==HT_NOTIFICATION_Y) {
         if(footer[0]) strcat(footer," ");
@@ -830,7 +838,7 @@ static void pane_memory_checks(const char *dir) {
     assert(pane_memory("wrap",false) && pane_memory("b",false));
     reset(); ui_project_emit("a",NULL,"processing","",NULL); scene_take();
     assert(!active()->tool[0] && !result_visible());
-    assert(title_is("Deploy latest firmware") && status_is(HT_BELL));
+    assert(title_is("Deploy latest firmware") && status_is(""));
     fake_ms+=3400; surface_tick(fake_ms); scene_take();
     assert(title_is("Working")); portrait(dir,"working-without-footer");
     s.straight_title=true; scene_take(); assert(title_is("Working"));
@@ -894,10 +902,10 @@ static void bell_checks(const char *dir) {
     reset(); scene_take();
     bool found=false;
     for(int i=0;i<scene.count;i++) if(!strcmp(scene.runs[i].text,HT_BELL)) {
-        assert(scene.runs[i].fg==DIM && scene.runs[i].font==&ht_bell_footer && !scene.runs[i].shimmer);
+        assert(false); // An empty inbox has no bell run.
         found=true;
     }
-    assert(found && !action_enabled(A_INBOX));
+    assert(!found && !action_enabled(A_INBOX));
     // A restored host failure is distinct from a completed task. Questions
     // keep priority; an ordinary fresh result must clear any old failure mark.
     cable_notif_t failed={.agent_id="b",.name="Website",.failed=true,
@@ -957,6 +965,31 @@ static void bell_checks(const char *dir) {
 }
 
 static void notification_read_checks(const char *dir) {
+    // Exact occurrence receipts: no focus, no answering, idempotent retries.
+    cable_notif_t synced={.agent_id="a",.name="Build",.summary="The build passed. All checks are green.",.read_token="turn-1"};
+    reset(); ui_notif_replace(&synced,1); ui_notif_open(); scene_take();
+    assert(notice_reads_sent==1 && !notice_unread() && !strcmp(notice_read_queued.text,"turn-1"));
+    assert(!desktop_opens && !starts && !question_sends);
+    notice_flush_reads(ms()); assert(notice_reads_sent==1);
+    fake_ms=10000; notice_flush_reads(ms()); assert(notice_reads_sent==2);
+    ui_notif_replace(NULL,0); assert(s.view==INBOX && s.notice_count==1 && !notice_unread());
+    fake_ms+=3000; notice_flush_reads(ms()); assert(notice_reads_sent==2); // app acknowledged, keep reading
+    view(HOME); ui_notif_replace(NULL,0); assert(!s.notice_count);
+    strcpy(synced.read_token,"turn-2"); ui_notif_replace(&synced,1); assert(notice_unread()==1);
+    ui_notif_read("a","turn-1"); assert(notice_unread()==1); // stale, identical text
+    ui_notif_read("a","turn-2"); assert(!s.notice_count); // desktop clear
+    synced.question=true; strcpy(synced.read_token,"question-1");
+    ui_notif_replace(&synced,1); ui_notif_open(); congestion=true; scene_take();
+    assert(!notice_unread() && s.view==INBOX && !question_sends);
+    unsigned before=notice_reads_sent; congestion=false; fake_ms+=3000; notice_flush_reads(ms());
+    assert(notice_reads_sent==before+1 && !strcmp(notice_read_queued.text,"question-1"));
+    ui_notif_read("a","question-1"); ui_notif_replace(NULL,0);
+    assert(s.view==INBOX && s.notice_count==1 && !question_sends); // reading never answers
+    reset(); ui_notif_replace(&synced,1); ui_notif_open(); present_scene=false; scene_take();
+    uint32_t old_frame=habitat_scene_receipt(); strcpy(synced.read_token,"question-2");
+    ui_notif_replace(&synced,1); habitat_scene_presented(old_frame);
+    assert(notice_unread()==1 && !notice_reads_sent); // late DMA cannot read a new occurrence
+
     cable_notif_t rows[2]={
         {.agent_id="a",.name="Build",.summary="The build passed. All checks are green."},
         {.agent_id="b",.name="Release",.summary="May I publish this release?",.question=true}};
@@ -974,11 +1007,11 @@ static void notification_read_checks(const char *dir) {
     ui_notif_open(); assert(!strcmp(s.notice[s.offset].agent_id,"a")); scene_take();
     assert(!notice_unread() && s.notice_count==2 && s.view==INBOX);
     portrait(dir,"inbox-read-stays");
-    tap(1000,233,430); assert(s.view==HOME && status_is(HT_BELL) && !action_enabled(A_INBOX));
-    for(int i=0;i<scene.count;i++) if(scene.runs[i].font==&ht_bell_footer) assert(scene.runs[i].fg==DIM);
+    tap(1000,233,430); assert(s.view==HOME && status_is("") && !action_enabled(A_INBOX));
+    for(int i=0;i<scene.count;i++) assert(scene.runs[i].font!=&ht_bell_footer);
     portrait(dir,"bell-all-read");
     ui_notif_replace(NULL,0); ui_notif_replace(rows,2); scene_take();
-    assert(!notice_unread() && status_is(HT_BELL)); // Late/reconnect snapshot stays read.
+    assert(!notice_unread() && status_is("")); // Late/reconnect snapshot stays read.
     strcpy(rows[0].summary,"The next build is ready.");
     ui_notif_replace(rows,2); assert(notice_unread()==1);
     ui_notif_open(); scene_take(); assert(!notice_unread());
@@ -1015,10 +1048,34 @@ static void notification_read_checks(const char *dir) {
         assert(s.notice_read_next<NOTICES && s.notice_count<=NOTICES);
     }
     assert(!starts && !question_sends && !desktop_opens);
-    puts("Notification read: post-DMA only, sleep/lock, stale/identical replacements, read/open idempotence, questions, muted bell, reconnect snapshots and bounded receipt history PASS");
+    puts("Notification read: post-DMA only, sleep/lock, stale/identical replacements, read/open idempotence, questions, hidden empty bell, reconnect snapshots and bounded receipt history PASS");
     reset();
 }
 
+static void tab_frame_checks(void) {
+    static uint16_t full[466*466], delta[466*466], patch[466*466];
+    ht_scene_t previous={0};
+    workspace_setup();
+    strcpy(s.tabs[1].name,"Device firmware and voice interaction experiments");
+    strcpy(s.tabs[2].name,"Caf\xc3\xa9 / infrastructure");
+    dispatch((action_t){.kind=A_TABS});
+    for(int position=-80;position<=3*HT_TAB_PITCH+80;position+=17) {
+        tab_carousel.position=position; scene_take();
+        ht_damage_t damage; ht_damage(position==-80 ? NULL : &previous,&scene,&damage);
+        for(int i=0;i<damage.count;i++) {
+            ht_rect_t r=damage.rect[i]; ht_raster(&scene,r,patch);
+            for(int y=0;y<r.h;y++) memcpy(delta+(r.y+y)*466+r.x,patch+y*r.w,(size_t)r.w*2);
+        }
+        ht_raster(&scene,(ht_rect_t){0,0,466,466},full);
+        assert(!memcmp(full,delta,sizeof full));
+        uint16_t bg=(uint16_t)((BG>>8)|(BG<<8));
+        for(int y=0;y<466;y++) for(int x=0;x<466;x++) if(full[y*466+x]!=bg)
+            assert((x-233)*(x-233)+(y-233)*(y-233)<232*232);
+        previous=scene;
+    }
+    puts("tab frames: long/UTF-8 names, rim bounds, clipped movement and exact partial redraw PASS");
+    reset();
+}
 int main(int argc, char **argv) {
     test_character = getenv("HABITAT_TEST_TUX") ? HT_CHARACTER_TUX : HT_CHARACTER_TIM;
     notification_read_checks(argc>1 ? argv[1] : NULL);
@@ -1164,18 +1221,19 @@ int main(int argc, char **argv) {
     reset(); s.view=SETTINGS; s.offset=6; scene_take(); congestion=true;
     tap(1000,233,336); assert(!visit.pending && !visit_sends && s.view==MESSAGE);
     reset(); s.connected=false; s.view=SETTINGS; scene_take(); assert(!action_enabled(A_LATEST));
+    tab_frame_checks();
     workspace_setup(); assert(!action_enabled(A_TABS)); portrait(dir,"workspace-home");
     for(int i=0;i<scene.count;i++) assert(!strstr(scene.runs[i].text,"Product") && !strstr(scene.runs[i].text,"[ tabs ]"));
-    assert(action_enabled(A_AGENTS) && title_is(active()->name) && status_is(HT_BELL));
+    assert(action_enabled(A_AGENTS) && title_is(active()->name) && status_is(""));
     tap(1000,233,41); assert(s.view==AGENTS && !starts && !tab_switches);
     workspace_setup();
     habitat_touch(true,233,230,2000); habitat_touch(true,233,230,2700);
     habitat_touch(true,233,100,2800); habitat_touch(false,233,100,2900);
-    assert(s.view==AGENTS && !starts && !tab_switches); // Idle still has the hold-up gesture.
-    // Hold-left reveals Tabs before release, without scrolling or opening a mic.
+    assert(s.view==TABS && !starts && !tab_switches); // Hold opens Tabs; later motion is consumed.
+    // Hold reveals Tabs before release, without scrolling or opening a mic.
     workspace_setup(); habitat_touch(true,233,230,2000);
     habitat_touch(true,233,230,2700); habitat_touch(true,100,230,2800); scene_take();
-    assert(s.quick_open && s.quick_choice==3 && s.view==HOME && !starts && !moves && !tab_switches);
+    assert(s.view==TABS && s.touch_cancelled && !starts && !moves && !tab_switches);
     portrait(dir,"shortcut-tabs");
     habitat_touch(false,100,230,2900); scene_take();
     assert(s.view==TABS && !starts && !tab_switches && !moves);
@@ -1213,15 +1271,14 @@ int main(int argc, char **argv) {
     habitat_touch(true,233,41,1000); habitat_touch(true,233,140,1100);
     habitat_touch(false,233,140,1200);
     assert(s.view==HOME && !tab_switches && !starts); // drag never opens the inbox or microphone
-    // Hold-right opens the inbox deliberately from the companion.
-    workspace_setup(); s.notice_count=1; scene_take(); habitat_touch(true,233,230,2000);
-    habitat_touch(true,233,230,2700); habitat_touch(true,350,230,2800);
-    habitat_touch(false,350,230,2900); assert(s.view==INBOX && !starts && !tab_switches);
+    // The bell opens the inbox; hold no longer has a directional action.
+    workspace_setup(); s.notice_count=1; scene_take(); tap(2000,233,420);
+    assert(s.view==INBOX && !starts && !tab_switches);
     // A host clear during contact leaves the caption action unchanged.
     workspace_setup(); s.notice_count=1; active()->busy=true; scene_take(); habitat_touch(true,233,41,1000);
     s.notice_count=0; scene_take(); habitat_touch(false,233,41,1080);
     assert(s.view==AGENTS && !tab_switches && !starts);
-    // The existing hold-left gesture still reaches workspaces while updates wait.
+    // Hold still reaches workspaces while updates wait.
     workspace_setup(); s.notice_count=1; scene_take(); habitat_touch(true,233,230,1000);
     habitat_touch(true,233,230,1700); habitat_touch(true,100,230,1800);
     habitat_touch(false,100,230,1900); assert(s.view==TABS && !starts && !tab_switches);
@@ -1318,55 +1375,65 @@ int main(int argc, char **argv) {
     strcpy(s.tabs[4].id,"tab-4"); strcpy(s.tabs[4].name,"Tools");
     strcpy(s.tabs[5].id,"tab-5"); strcpy(s.tabs[5].name,"Notes");
     dispatch((action_t){.kind=A_TABS}); scene_take(); portrait(dir,"tabs-names");
-    assert(s.view==TABS && s.hit_count==5 && !action_enabled(A_UP) && !action_enabled(A_DOWN));
-    assert(!action_enabled(A_MACHINES));
-    int highlighted=0;
+    assert(s.view==TABS && s.hit_count==3 && !action_enabled(A_UP) && !action_enabled(A_DOWN));
+    assert(action_enabled(A_HOME) && action_enabled(A_SETTINGS) && !action_enabled(A_MACHINES));
+    assert(ht_tab_carousel_index(&tab_carousel)==1);
     for(int i=0;i<scene.count;i++) {
         assert(!strstr(scene.runs[i].text,"panes") && !strstr(scene.runs[i].text,"selected"));
-        assert(!strchr(scene.runs[i].text,':') && strcmp(scene.runs[i].text,">"));
-        if(scene.runs[i].bg==SEL) { highlighted++; assert(!strcmp(scene.runs[i].text," Product")); }
+        assert(scene.runs[i].bg==BG); // no list boxes or alternating row fills
     }
-    assert(highlighted==1);
-    for(int i=1;i<s.hit_count;i++) {
-        assert(s.hits[i].action==A_TAB && s.hits[i].rect.h>=48);
-        if(i>1) assert(s.hits[i].rect.y>=s.hits[i-1].rect.y+s.hits[i-1].rect.h);
-    }
-    habitat_touch(true,233,300,3000); habitat_touch(true,233,220,3060); scene_take();
-    assert(s.offset==1 && s.view==TABS && !tab_switches && !starts && !moves);
-    habitat_touch(false,233,160,3120); scene_take();
-    assert(s.offset==2 && s.view==TABS && !tab_switches && !starts);
-    portrait(dir,"tabs-scrolled");
-    tap(3300,233,360); assert(tab_switches==1 && !strcmp(tab_target,"tab-5") && !starts);
-    // A short list never scrolls into an empty page; out-and-back is not a tap.
+    habitat_touch(true,400,233,3000); habitat_touch(true,120,233,3120); scene_take();
+    assert(tab_carousel.position==HT_TAB_PITCH+280 && !tab_switches && !starts && !moves);
+    portrait(dir,"tabs-dragging");
+    habitat_touch(false,80,233,3150); scene_take();
+    assert(tab_carousel.animating && !tab_switches && !starts);
+    surface_tick(3250); scene_take(); portrait(dir,"tabs-settling");
+    // A touch brakes a moving page. It must never also open the old rendered target.
+    tap(3260,233,233); assert(s.view==TABS && !tab_switches && !starts);
+    surface_tick(3650); scene_take();
+    int chosen=ht_tab_carousel_index(&tab_carousel);
+    char chosen_id[ID_MAX]; COPY(chosen_id,s.tabs[chosen].id);
+    tap(3900,233,233); assert(tab_switches==1 && !strcmp(tab_target,chosen_id));
+    // Vertical/out-and-back motion stays in the picker and never opens a tab.
     workspace_setup(); dispatch((action_t){.kind=A_TABS}); scene_take();
     habitat_touch(true,233,300,4000); habitat_touch(true,233,120,4100);
     habitat_touch(false,233,300,4200); scene_take();
-    assert(s.offset==0 && !tab_switches && !starts && s.view==TABS);
-    // All 24 supported tabs remain reachable, including the last current tab.
+    assert(ht_tab_carousel_index(&tab_carousel)==1 && !tab_switches && !starts && s.view==TABS);
+    habitat_touch(true,233,233,4400); habitat_touch(true,120,233,4500);
+    habitat_touch(true,233,233,4700); habitat_touch(false,233,233,4900);
+    surface_tick(5200); scene_take(); assert(ht_tab_carousel_index(&tab_carousel)==1 && !tab_switches);
+    // All 24 tabs remain reachable. Physical left/right is independent of desktop scroll preference.
     workspace_setup(); s.tab_count=24;
     for(int i=4;i<24;i++) {
         snprintf(s.tabs[i].id,sizeof s.tabs[i].id,"tab-%d",i);
         snprintf(s.tabs[i].name,sizeof s.tabs[i].name,"Workspace %d",i);
     }
     strcpy(s.selected_tab,"tab-23"); dispatch((action_t){.kind=A_TABS}); scene_take();
-    assert(s.offset==20 && s.hit_count==5 && s.hits[4].value==23);
+    assert(ht_tab_carousel_index(&tab_carousel)==23 && s.hits[0].value==23);
     portrait(dir,"tabs-last");
-    habitat_touch(true,233,180,5000); habitat_touch(true,233,308,5060); scene_take();
-    assert(s.offset==18 && !tab_switches && !starts);
-    habitat_touch(false,233,308,5120); assert(s.offset==18);
-    // Reversing the scroll preference only changes direction, never the target.
-    scroll_reversed=true; scene_take();
-    habitat_touch(true,233,180,5300); habitat_touch(true,233,308,5360);
-    habitat_touch(false,233,308,5420); scene_take();
-    assert(s.offset==20 && !tab_switches && !starts); scroll_reversed=false;
-    // A changed roster during contact cancels the stale choice and clamps view.
-    habitat_touch(true,233,360,5600); ui_swarms_replace(s.tabs,2,"tab-1");
-    habitat_touch(false,233,360,5675); scene_take();
-    assert(s.offset==0 && !tab_switches && !starts && s.hit_count==3);
+    scroll_reversed=true;
+    for(int wanted=22;wanted>=0;wanted--) {
+        uint32_t t=6000+(22-wanted)*1000;
+        habitat_touch(true,53,233,t); habitat_touch(true,413,233,t+300);
+        habitat_touch(false,413,233,t+450); surface_tick(t+700); scene_take();
+        assert(ht_tab_carousel_index(&tab_carousel)==wanted && !tab_switches && !starts);
+    }
+    scroll_reversed=false;
+    // Changed identities cancel stale contacts; only pane-count changes preserve motion.
+    habitat_touch(true,233,233,30000);
+    s.tabs[0].panes++; ui_swarms_replace(s.tabs,24,"tab-23");
+    assert(!s.touch_cancelled);
+    ui_swarms_replace(s.tabs,2,"tab-1");
+    habitat_touch(false,233,233,30075); scene_take();
+    assert(!tab_switches && !starts && s.hit_count==3 && ht_tab_carousel_index(&tab_carousel)==0);
     ui_swarms_replace(NULL,0,NULL); scene_take(); portrait(dir,"tabs-empty");
-    assert(s.hit_count==1 && action_enabled(A_HOME) && !action_enabled(A_TAB));
+    assert(s.hit_count==2 && action_enabled(A_HOME) && !action_enabled(A_TAB));
     workspace_setup(); s.connected=false; dispatch((action_t){.kind=A_TABS}); scene_take();
-    assert(!action_enabled(A_TAB)); tap(5800,233,140); assert(!tab_switches && !starts);
+    assert(!action_enabled(A_TAB)); tap(32000,233,233); assert(!tab_switches && !starts);
+    // Long UTF-8 names wrap without painting into the rim. Footer controls stay reachable.
+    workspace_setup(); strcpy(s.tabs[1].name,"A workspace with a longer name for device development");
+    dispatch((action_t){.kind=A_TABS}); scene_take(); portrait(dir,"tabs-long-name");
+    tap(33000,288,420); assert(s.view==SETTINGS && !tab_switches && !starts);
     reset(); s.view=INBOX; dispatch((action_t){.kind=A_NOTICE,.id="off-tab-agent"});
     assert(desktop_opens==1 && !strcmp(opened_agent,"off-tab-agent") && s.view==INBOX);
     assert(!visit.pending && !visit_sends && !starts); // Works with the shipping agent.open protocol.
@@ -1377,7 +1444,10 @@ int main(int argc, char **argv) {
     workspace_setup(); habitat_touch(true,233,230,1000);
     habitat_touch(true,233,230,1700); habitat_touch(true,100,230,1800);
     habitat_touch(false,100,230,1900); scene_take(); portrait(dir,"tabs-from-gesture");
-    tap(2100,233,336); // Fourth row: Research. The normal switch receipt still applies.
+    habitat_touch(true,413,233,2000); habitat_touch(true,53,233,2300); habitat_touch(false,53,233,2450);
+    surface_tick(2700); scene_take();
+    habitat_touch(true,413,233,3000); habitat_touch(true,53,233,3300); habitat_touch(false,53,233,3450);
+    surface_tick(3700); scene_take(); tap(4000,233,233); // Research. The normal switch receipt still applies.
     assert(tab_switches==1 && !strcmp(tab_target,"tab-3") && s.loading && s.view==MESSAGE);
     uint32_t serial=workspace.serial;
     ui_land_after_reload(); assert(s.loading); // A periodic refresh is not a switch receipt.
@@ -1395,7 +1465,7 @@ int main(int argc, char **argv) {
     assert(!s.loading && s.view==HOME && !active() && !starts);
     workspace_setup(); habitat_touch(true,233,230,1000); habitat_touch(true,233,230,1700);
     habitat_touch(true,100,230,1800); habitat_touch_cancel(); habitat_touch(false,100,230,1900);
-    assert(!tab_switches && !starts && s.view==HOME);
+    assert(!tab_switches && !starts && s.view==TABS);
     // The same gesture works on the smaller completed-turn portrait.
     workspace_setup(); s.agents[0].recap_ready=true; s.agents[0].has_event=true;
     strcpy(s.agents[0].preview,"Installed. The device reconnected."); scene_take(); portrait(dir,"completed-quiet-footer");
@@ -1525,7 +1595,7 @@ int main(int argc, char **argv) {
     habitat_touch(false,233,220,1270); assert(!starts);
     tap(1390,233,220); assert(starts==1);
     reset(); habitat_touch(true,233,220,1000); habitat_touch(false,233,220,1700);
-    assert(s.view==HOME && !starts);
+    assert(s.view==TABS && !starts);
     reset(); active()->busy=true; scene_take(); tap(1000,233,41); assert(s.view==AGENTS && !starts);
     reset(); s.connected=false; scene_take(); portrait(dir,"offline");
     assert(scene.count==1 && !strcmp(scene.runs[0].text,"Harness") && !s.hit_count);
@@ -1551,21 +1621,17 @@ int main(int argc, char **argv) {
     s.voice_retry_until=0; scene_take(); assert(result_visible());
     s.voice_retry_until=4000; scene_take(); tap(1000,233,220);
     assert(starts==1 && s.view==VOICE && !s.voice_retry_until && !strcmp(target,"a"));
-    // Hold previews do not execute. A later slide chooses a destination, never scrolls or talks.
-    reset(); s.notice_count=1; habitat_touch(true,233,220,1000); surface_tick(1650);
-    assert(s.quick_open && s.view==HOME && !starts); scene_take(); portrait(dir,"shortcuts");
-    habitat_touch(true,330,220,1700); assert(!moves && s.view==HOME);
-    scene_take(); portrait(dir,"shortcut-attention");
-    habitat_touch(false,330,220,1800); assert(s.view==INBOX && !starts);
-    reset(); habitat_touch(true,233,220,1000); surface_tick(1650);
-    habitat_touch(true,130,220,1700); habitat_touch(false,130,220,1800);
-    assert(s.view==TABS && !starts && !moves);
-    reset(); habitat_touch(true,233,220,1000); surface_tick(1650);
-    habitat_touch(true,233,130,1700); habitat_touch(false,233,130,1800);
-    assert(s.view==AGENTS && !starts && !moves);
-    reset(); habitat_touch(true,233,220,1000); surface_tick(1650);
-    habitat_touch(true,233,320,1700); habitat_touch(false,233,320,1800);
-    assert(s.view==SETTINGS && !starts && !moves); scene_take(); portrait(dir,"controls");
+    // Hold opens one destination immediately; every direction of the opening contact is consumed.
+    const int hold_ends[][2]={{233,220},{330,220},{130,220},{233,130},{233,320}};
+    for(unsigned i=0;i<sizeof hold_ends/sizeof hold_ends[0];i++) {
+        workspace_setup(); habitat_touch(true,233,220,1000); surface_tick(1650);
+        assert(s.view==TABS && s.touch_cancelled && !starts); scene_take();
+        habitat_touch(true,hold_ends[i][0],hold_ends[i][1],1700);
+        habitat_touch(false,hold_ends[i][0],hold_ends[i][1],1800);
+        assert(s.view==TABS && !starts && !moves && !tab_switches && ht_tab_carousel_index(&tab_carousel)==1);
+    }
+    scene_take(); portrait(dir,"hold-tabs");
+    tap(2000,285,420); assert(s.view==SETTINGS && !starts); scene_take(); portrait(dir,"controls");
     dispatch((action_t){.kind=A_SELECT_BEGIN});
     assert(s.view==SELECTION && !starts && selected_command.op==HT_SELECT_BEGIN);
     assert(ht_selection_reply(&selection,selection.request,"pick-test",true,1,"Which part should change?",1,false,NULL,1810));
@@ -1592,12 +1658,16 @@ int main(int argc, char **argv) {
     assert(!strcmp(selected_action.text,"pick-test") && selected_action.dy==1);
     tap(2700,233,220); assert(starts==1 && s.view==VOICE && !strcmp(target,"a"));
     reset(); habitat_touch(true,233,220,1000); surface_tick(1650); habitat_touch_cancel();
-    habitat_touch(false,233,220,1800); assert(s.view==HOME && !s.quick_open && !starts);
+    habitat_touch(false,233,220,1800); assert(s.view==TABS && !starts);
     reset(); habitat_touch(true,233,220,1000); surface_tick(1650); surface_tick(6000);
-    habitat_touch(false,233,220,6100); assert(s.view==HOME && !starts); // resting hand
+    habitat_touch(false,233,220,6100); assert(s.view==TABS && !starts); // resting hand never selects a tab
     reset(); habitat_touch(true,233,220,1000); habitat_touch(true,233,170,1100);
     surface_tick(1650); habitat_touch(false,233,170,1800);
-    assert(!s.quick_open && s.view==HOME && !starts); // a drag can never become a hold
+    assert(s.view==HOME && !starts); // a drag can never become a hold
+    reset(); habitat_touch(true,233,220,1000); habitat_touch(false,53,220,1700);
+    assert(s.view!=TABS && switches==1 && !starts); // delayed final motion is classified before hold
+    reset(); habitat_touch(true,233,220,1000); habitat_touch(true,233,80,1700);
+    habitat_touch(false,233,80,1800); assert(s.view==HOME && moves && !starts);
     reset(); s.rim_enabled=true; tap(1000,433,233); assert(!starts && !switches);
     habitat_touch(true,433,233,2000); habitat_touch(true,418,310,2100);
     habitat_touch(true,374,374,2200); habitat_touch(true,310,418,2300);
@@ -1614,10 +1684,8 @@ int main(int argc, char **argv) {
     reset(); s.pet_pose=1; scene_take(); portrait(dir,"booped");
     reset(); waiting_count=1; s.notice_count=1; scene_take(); portrait(dir,"attention");
     tap(1000,233,375); assert(s.view==VOICE && starts==1);
-    dispatch((action_t){.kind=A_VOICE_ABORT}); starts=0;
-    habitat_touch(true,233,230,2000); surface_tick(2700);
-    habitat_touch(true,350,230,2800); habitat_touch(false,350,230,2900);
-    assert(s.view==INBOX && !starts);
+    dispatch((action_t){.kind=A_VOICE_ABORT}); starts=0; scene_take();
+    tap(2700,233,420); assert(s.view==INBOX && !starts);
     reset(); visit.available=true; scene_take(); portrait(dir,"return");
     tap(1000,233,409); assert(returns==1 && !starts); visit.available=false;
     reset(); COPY(s.agents[0].name,"A very long recipient name that still needs to be readable on a tiny circular display");
@@ -1728,12 +1796,8 @@ int main(int argc, char **argv) {
     scene_take(); portrait(dir,"output-search-empty");
     tap(4400,233,220); assert(starts==2); // Nothing to quote.
     tap(5100,233,362); assert(starts==3 && s.voice_search); // Search remains usable.
-    // The compass uses the final release coordinates and its center cancels.
-    reset(); habitat_touch(true,233,220,1000); surface_tick(1650);
-    habitat_touch(true,330,220,1700); assert(s.quick_choice==2);
-    habitat_touch(false,233,220,1800); assert(s.view==HOME && !s.quick_open && !starts && !moves);
-    reset(); habitat_touch(true,233,220,1000); surface_tick(1650);
-    habitat_touch(false,233,130,1800); assert(s.view==AGENTS && !starts && !moves);
+    // Pane navigation remains available from the home caption.
+    reset(); tap(1000,233,41); assert(s.view==AGENTS && !starts && !moves);
     scene_take(); portrait(dir,"panes");
     reset(); s.count=8; s.active=7;
     for(int i=0;i<8;i++) { snprintf(s.agents[i].id,sizeof s.agents[i].id,"pane-%d",i); snprintf(s.agents[i].name,sizeof s.agents[i].name,"Pane %d",i); }

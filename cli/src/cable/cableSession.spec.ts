@@ -277,6 +277,33 @@ describe('cable session', () => {
     } finally { await session.stop() }
   })
 
+  it('carries read tokens through snapshots and accepts only bounded read receipts', async () => {
+    const readNotification = vi.fn(), openAgent = vi.fn()
+    const { session, port } = await connect(makeHost({ readNotification, openAgent }))
+    try {
+      await session.replaceNotifications([{ agentId: 'a1', machineId: 'mac-local', question: true, text: 'Which branch?', readToken: 'question-2' }])
+      expect(port.sent.at(-1)).toMatchObject({ t: 'notif.replace', items: [{ readToken: 'question-2' }] })
+      port.say({ t: 'notif.read', agentId: 'a1', readToken: 'question-2' })
+      for (const readToken of ['', 42, null, 'a'.repeat(64), 'line\nbreak']) port.say({ t: 'notif.read', agentId: 'a1', readToken })
+      await settle()
+      expect(readNotification).toHaveBeenCalledExactlyOnceWith('a1', 'question-2')
+      expect(openAgent).not.toHaveBeenCalled()
+    } finally { await session.stop() }
+  })
+
+  it.each(['turn-1', 'turn-2'])('a late read of %s cannot clear a newer snapshot occurrence', async readToken => {
+    let finish!: (value: Array<{ recap: string; text: string }>) => void
+    const history = new Promise<Array<{ recap: string; text: string }>>(resolve => { finish = resolve })
+    const { session, port } = await connect(makeHost({ recentSummaries: () => history }))
+    try {
+      const pending = session.replaceNotifications([{ agentId: 'a1', machineId: 'mac-local', question: false, text: '', readToken: 'turn-2' }])
+      await session.agentSeen('a1', readToken)
+      finish([{ recap: 'Same words.', text: 'Same words.' }]); await pending
+      const items = port.sent.at(-1)!.items as unknown[]
+      expect(items).toHaveLength(readToken === 'turn-2' ? 0 : 1)
+    } finally { await session.stop() }
+  })
+
   it('fetches the chosen agent question and submits its reviewed token once', async () => {
     const answerReviewed = vi.fn<NonNullable<CableHost['answerReviewed']>>(async () => ({ ok: true as const }))
     const { session, port } = await connect(makeHost({ answerReviewed }))

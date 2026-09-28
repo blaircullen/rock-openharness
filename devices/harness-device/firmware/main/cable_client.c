@@ -236,6 +236,16 @@ void cable_client_send_open(const char *agent_id, const char *reason)
     send_json(root);
 }
 
+bool cable_client_notification_read(const char *agent_id, const char *read_token)
+{
+    if (!agent_id || !agent_id[0] || strlen(agent_id) >= ID_MAX ||
+        !read_token || !read_token[0] || strlen(read_token) >= CABLE_READ_TOKEN_MAX) return false;
+    cJSON *root = msg("notif.read");
+    msg_string(&root, "agentId", agent_id);
+    msg_string(&root, "readToken", read_token);
+    return send_json(root);
+}
+
 void cable_client_send_scroll(cable_scroll_phase_t phase, int dy, int velocity)
 {
     _Static_assert(CABLE_SCROLL_DOWN == 0 && CABLE_SCROLL_MOVE == 1 && CABLE_SCROLL_UP == 2,
@@ -950,6 +960,9 @@ static void handle_notifications(const cJSON *p)
         snprintf(rows[n].summary, sizeof(rows[n].summary), "%s", str_of(it, "summary") ? str_of(it, "summary") : "");
         rows[n].question = bool_of(it, "question");
         rows[n].failed = bool_of(it, "failed");
+        const char *token = str_of(it, "readToken");
+        if (token && token[0] && strlen(token) < sizeof rows[n].read_token)
+            snprintf(rows[n].read_token, sizeof rows[n].read_token, "%s", token);
         n++;
     }
     ui_notif_replace(rows, n);
@@ -1083,7 +1096,12 @@ static void handle_message(const cJSON *root)
     // empty — see ui_notif_replace.
     if (strcmp(t, "notif.replace") == 0) { handle_notifications(p); return; }
     if (strcmp(t, "notif.seen") == 0) {
-        if (agent_id) ui_notif_seen(agent_id);
+        const cJSON *token = cJSON_GetObjectItemCaseSensitive(p, "readToken");
+        if (agent_id && token) {
+            if (cJSON_IsString(token) && token->valuestring[0] &&
+                strlen(token->valuestring) < CABLE_READ_TOKEN_MAX)
+                ui_notif_read(agent_id, token->valuestring);
+        } else if (agent_id) ui_notif_seen(agent_id);
         return;
     }
     if (strcmp(t, "turn.error") == 0) {

@@ -46,6 +46,24 @@ function fleetOf(machines: FleetMachine[]): MachineFleet {
 
 const REMOTE: FleetMachine = { machineId: 'other', name: 'office-imac', state: 'ready', authMode: 'remote' }
 
+describe('notification read receipts', () => {
+  it('routes the exact occurrence to its machine without focusing or answering', () => {
+    const w = wiring({ notificationRead: vi.fn(), opened: vi.fn(), focused: vi.fn() })
+    const host = new DaemonCableHost(w)
+    const item = { agentId: 'a', machineId: 'other', text: 'Same words.', question: true, readToken: 'turn-2' }
+    host.setUnread([item])
+    for (const [agent, token] of [['a', 'turn-1'], ['b', 'turn-2'], ['a', 'x'.repeat(64)], ['a', '']]) host.readNotification(agent, token)
+    expect(w.notificationRead).not.toHaveBeenCalled()
+    host.readNotification('a', 'turn-2'); host.readNotification('a', 'turn-2')
+    expect(w.notificationRead).toHaveBeenCalledTimes(2)
+    expect(w.notificationRead).toHaveBeenLastCalledWith('other', 'a', 'turn-2')
+    expect(w.opened).not.toHaveBeenCalled(); expect(w.focused).not.toHaveBeenCalled(); expect(w.answer).not.toHaveBeenCalled()
+    expect(host.listUnread()).toEqual([item]) // only the window confirms the clear
+    host.setUnread([]); host.readNotification('a', 'turn-2')
+    expect(w.notificationRead).toHaveBeenCalledTimes(2)
+  })
+})
+
 /** The window, open on one tab that holds these panes in this order. */
 function onTab(host: DaemonCableHost, agentIds: string[], id = 't1'): void {
   host.setSwarms({ active: id, swarms: [{ id, name: 'Tab', agentIds, panes: agentIds.length }], tiles: [] })

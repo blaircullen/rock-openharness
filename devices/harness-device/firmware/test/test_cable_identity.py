@@ -119,6 +119,15 @@ int main(void) {
            notices[1].question && !notices[1].failed && !notices[2].question && !notices[2].failed);
     p=cJSON_Parse("{\"items\":[{\"agentId\":\"failed\"}]}");
     assert(p);handle_notifications(p);cJSON_Delete(p);assert(notice_count==1&&!notices[0].failed);
+    for(int len=0;len<=65;len++) {
+        char token[66];memset(token,'t',len);token[len]=0;
+        p=cJSON_CreateObject();assert(p);cJSON *entries=cJSON_AddArrayToObject(p,"items");
+        cJSON *row=cJSON_CreateObject();assert(cJSON_AddItemToArray(entries,row));
+        assert(cJSON_AddStringToObject(row,"agentId","receipt"));
+        assert(cJSON_AddStringToObject(row,"readToken",token));handle_notifications(p);
+        assert(notice_count==1 && strlen(notices[0].read_token)==(len>0&&len<64?(size_t)len:0));
+        cJSON_Delete(p);bounds();
+    }
     char profile[sizeof models[0].id],bad_profile[sizeof models[0].id+1];
     memset(profile,'p',sizeof profile-1);profile[sizeof profile-1]=0;
     snprintf(bad_profile,sizeof bad_profile,"%sx",profile);

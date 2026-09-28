@@ -197,17 +197,22 @@ typedef struct {
 // One row of the window's unread list, as `notif.replace` carries it. `summary` is
 // the finished turn's recap or the question's own words. Match the home preview's
 // byte capacity so an 80-character recap with UTF-8 punctuation arrives intact.
+// Opaque desktop notification identity, including terminator.
+#define CABLE_READ_TOKEN_MAX 64
 typedef struct {
     char agent_id[ID_MAX];
     char name[CABLE_NAME_MAX];
     char machine[CABLE_NAME_MAX];
     char summary[240];
+    char read_token[CABLE_READ_TOKEN_MAX];
     bool question;
     bool failed; // Optional explicit host metadata; never inferred from prose.
     // Local display bookkeeping. Incoming snapshots never supply these values.
     bool read_on_dial;
     uint32_t display_revision;
 } cable_notif_t;
+
+bool cable_client_notification_read(const char *agent_id, const char *read_token);
 
 // The user tapped a swarm. Not answered — see above.
 void cable_client_select_swarm(const char *swarm_id);

@@ -113,7 +113,7 @@ typedef enum {
     A_SELECT_BEGIN, A_SELECT_FIND, A_SELECT_EXTEND, A_SELECT_SEND, A_RETURN, A_LATEST, A_VISIT_SEND,
     A_CARRY, A_CARRY_DROP, A_CARRY_SEND,
     A_DRAFT_EDIT, A_DRAFT_APPEND, A_DRAFT_UNDO, A_DRAFT_SEND, A_DRAFT_DISCARD,
-    A_DRAFT_STATE, A_DRAFT_OPTIONS, A_DRAFT_BACK, A_DRAFT_COMMAND
+    A_DRAFT_STATE, A_DRAFT_OPTIONS, A_DRAFT_BACK, A_DRAFT_COMMAND, A_NOTICE_READ
 } action_kind_t;
 typedef struct {
     action_kind_t kind;
@@ -167,6 +167,9 @@ typedef struct {
 } question_submit_t;
 typedef struct {
     char id[ID_MAX], summary[240];
+    char token[CABLE_READ_TOKEN_MAX];
+    uint32_t sent_at;
+    bool pending;
     bool question, failed;
 } notice_receipt_t;
 static EXT_RAM_BSS_ATTR struct {
@@ -217,8 +220,6 @@ static EXT_RAM_BSS_ATTR struct {
     int hit_count, pressed;
     bool touch_down, touch_cancelled;
     bool touch_brake, coasting;
-    bool quick_open;
-    int quick_choice;
     uint32_t coast_until;
     uint32_t character_activity;
     uint8_t status_phase;
@@ -236,6 +237,7 @@ static bool scroll_reversed;
 static ht_scroll_t scroll;
 static ht_selection_t selection;
 static ht_workspace_t workspace;
+static ht_tab_carousel_t tab_carousel;
 static ht_carry_t carry;
 static ht_visit_t visit;
 static ht_form_t form;
@@ -325,7 +327,8 @@ static bool notice_was_read(const cable_notif_t *n)
     for (int i = 0; i < NOTICES; i++) {
         const notice_receipt_t *r = &s.notice_reads[i];
         if (!strcmp(r->id, n->agent_id) && r->question == n->question &&
-            r->failed == n->failed && !strcmp(r->summary, n->summary)) return true;
+            r->failed == n->failed && !strcmp(r->token, n->read_token) &&
+            !strcmp(r->summary, n->summary)) return true;
     }
     return false;
 }
@@ -333,6 +336,19 @@ static void notice_forget_read(const char *id)
 {
     for (int i = 0; i < NOTICES; i++)
         if (!strcmp(s.notice_reads[i].id, id)) s.notice_reads[i].id[0] = 0;
+}
+static void notice_flush_reads(uint32_t now)
+{
+    if (!s.connected) return;
+    for (int i = 0; i < NOTICES; i++) {
+        notice_receipt_t *r = &s.notice_reads[i];
+        if (!r->pending || !r->id[0] || !r->token[0] ||
+            (r->sent_at && now - r->sent_at < 2000)) continue;
+        action_t a = {.kind = A_NOTICE_READ}; COPY(a.id, r->id); COPY(a.text, r->token);
+        if (queue(a)) r->sent_at = now ? now : 1;
+        // At most one tiny receipt per tick; touch/audio retain queue capacity.
+        break;
+    }
 }
 static void notice_mark_read(cable_notif_t *n)
 {
@@ -345,8 +361,10 @@ static void notice_mark_read(cable_notif_t *n)
     if (slot < 0) { slot = s.notice_read_next; s.notice_read_next = (slot + 1) % NOTICES; }
     notice_receipt_t *r = &s.notice_reads[slot];
     COPY(r->id, n->agent_id); COPY(r->summary, n->summary);
+    COPY(r->token, n->read_token); r->sent_at = 0; r->pending = r->token[0] != 0;
     r->question = n->question; r->failed = n->failed;
     n->read_on_dial = true;
+    notice_flush_reads(ms());
     // Read is not answered, removed or focused. Keep this exact card in place.
     change();
 }
@@ -469,7 +487,7 @@ static void input_cancel(void)
     ht_workspace_cancel_touch(&workspace);
     ht_scroll_cancel(&scroll);
     s.coasting = false;
-    s.quick_open = false;
+    ht_tab_carousel_cancel(&tab_carousel);
     s.voice_review_preview = false;
     if (s.touch_down) s.touch_cancelled = true;
     s.pressed = -1;
@@ -506,6 +524,12 @@ static int workspace_index(const char *id)
     if (!id || !*id) return -1;
     for (int i=0;i<s.tab_count;i++) if (!strcmp(id,s.tabs[i].id)) return i;
     return -1;
+}
+static void tabs_open(void)
+{
+    view(TABS);
+    if (s.view != TABS) return;
+    ht_tab_carousel_reset(&tab_carousel, s.tab_count, workspace_index(s.selected_tab));
 }
 static void workspace_failed(const char *message)
 {
@@ -668,7 +692,7 @@ static bool home_caption_rotates(void)
     const agent_t *a = active();
     return (s.view == HOME || s.view == AGENT) && a && a->busy && s.connected &&
         !s.loading && !s.nap && !s.quiet && !s.locked && !display_is_asleep() &&
-        !s.quick_open && !s.voice_retry_until && !carry.active && !carry.error[0] && !visit.available;
+        !s.voice_retry_until && !carry.active && !carry.error[0] && !visit.available;
 }
 static bool home_caption_tick(uint32_t now)
 {
@@ -680,7 +704,7 @@ static bool home_caption_tick(uint32_t now)
 }
 static bool status_animated(void)
 {
-    if (s.nap || s.quiet || s.locked || display_is_asleep() || s.touch_down || s.quick_open)
+    if (s.nap || s.quiet || s.locked || display_is_asleep() || s.touch_down)
         return false;
     if (s.view == VOICE) return !s.voice_review_preview && voice_status()[0];
     return home_caption_rotates() && home_caption.activity && !s.straight_title;
@@ -697,6 +721,8 @@ static uint32_t status_wake_ms(uint32_t now)
 }
 static void surface_tick(uint32_t now)
 {
+    notice_flush_reads(now);
+    if (s.view == TABS && !s.locked && !display_is_asleep() && ht_tab_carousel_tick(&tab_carousel, now)) change();
     if (home_caption_tick(now)) change();
     uint8_t phase = status_animated() ? ht_shimmer_phase(now * status_speed()) : 0;
     if (phase != s.status_phase) { s.status_phase = phase; change(); }
@@ -711,38 +737,20 @@ static void surface_tick(uint32_t now)
         s.touch_down && !s.touch_cancelled && gesture.live && !gesture.moved && !gesture.guarded &&
         pressed_action.kind == A_PET && held >= 650 && held <= 1800;
     if (review_preview != s.voice_review_preview) { s.voice_review_preview = review_preview; change(); }
-    if (visible && main && s.touch_down && !s.touch_cancelled && gesture.live && !gesture.guarded) {
-        uint32_t held = now - s.touch_started;
-        if (!s.quick_open && pressed_action.kind == A_PET && !gesture.moved && held >= 650 && held < 5000) {
-            s.quick_open = true;
-            s.quick_choice = 0;
-            ht_scroll_cancel(&scroll);
-            change();
-        } else if (s.quick_open && held >= 5000) {
-            input_cancel(); // resting a hand cannot eventually open a menu or start voice
-            change();
-        }
+    if (visible && main && s.touch_down && !s.touch_cancelled && gesture.live && !gesture.guarded &&
+        pressed_action.kind == A_PET && !gesture.moved && held >= 650 && held < 5000) {
+        // Enter directly. The opening contact is consumed until a real release,
+        // so lifting or sliding after the hold cannot also select a tab.
+        tabs_open();
+        return;
     }
     ht_character_mood_t mood = s.view == VOICE ?
         (!s.voice_start_pending && !s.voice_waiting && audio_client_recording() ? HT_CHARACTER_LISTENING : HT_CHARACTER_WORKING) :
         character_mood();
-    if (ht_character_tick(&character, now, mood, s.quiet, visible && !s.quick_open,
+    if (ht_character_tick(&character, now, mood, s.quiet, visible,
                            s.touch_down && !s.touch_cancelled, s.last_x,
                            mood == HT_CHARACTER_LISTENING ? audio_client_input_level() : 0, s.character_activity))
         change();
-}
-static void render_quick(ht_scene_t *f)
-{
-    static const char *destinations[] = {"release to stay", "release for panes", "release for inbox", "release for tabs", "release for controls"};
-    ht_arc_title(f, DIM, "slide, then release");
-    ht_center(f, 125, &ht_mono_20, s.quick_choice == 1 ? ACCENT : DIM, "panes");
-    ht_text(f, 62, 224, 108, &ht_mono_20, s.quick_choice == 3 ? ACCENT : DIM, BG, "tabs");
-    ht_text(f, 326, 224, 84, &ht_mono_20, s.quick_choice == 2 ? ACCENT : DIM, BG, "inbox");
-    ht_character_face_t face = {.mood=HT_CHARACTER_IDLE, .dim=DIM, .pose=character.motion.reaction.pose};
-    face.pose.look = s.quick_choice == 3 ? -1 : s.quick_choice == 2 ? 1 : 0;
-    ht_character_portrait(f, &character, &face, ACCENT, HT_CHARACTER_QUICK, 180);
-    ht_center(f, 322, &ht_mono_20, s.quick_choice == 4 ? ACCENT : DIM, "controls");
-    ht_arc_status(f, FG, destinations[s.quick_choice]);
 }
 static void page_controls(ht_scene_t *f, int count)
 {
@@ -777,7 +785,6 @@ static void render_home(ht_scene_t *f)
 {
     s.caption_arc = (ht_rect_t){0};
     if (!s.connected || s.loading) { render_brand(f); return; }
-    if (s.quick_open) { render_quick(f); return; }
     if (workspace.touching && workspace.moved && !workspace.cancelled) { render_workspace_preview(f); return; }
     agent_t *a = active();
     // The top caption belongs to the current pane; only completed work gets
@@ -793,6 +800,7 @@ static void render_home(ht_scene_t *f)
     const char *caption = rotating && home_caption.activity ? activity : a ? a->name : "Choose a pane";
     bool bell = !s.voice_retry_until && !carry.active && !carry.error[0] && !visit.available;
     unsigned unread = notice_unread();
+    bell = bell && unread > 0;
     char status[100];
     if (s.voice_retry_until) COPY(status, "Try again");
     else status[0] = 0;
@@ -801,7 +809,7 @@ static void render_home(ht_scene_t *f)
         .detail = "",
         .mood = character_mood(), .pose = character.motion.reaction.pose, .straight_title = s.straight_title,
         .footer_action = carry.active || carry.error[0] || visit.available,
-        .ink = bell && !unread ? DIM : FG, .foreground = FG, .dim = DIM,
+        .ink = FG, .foreground = FG, .dim = DIM,
         .primary_title = true, .roomy_reading = true};
     char carried[128];
     if (carry.active) {
@@ -842,7 +850,7 @@ static void render_home(ht_scene_t *f)
     if (bell)
         s.hits[s.hit_count++] = (hit_t){{83, 382, 300, 84}, A_INBOX, 0, unread > 0};
     // The bell and the creature never share a target, even when the bell is
-    // dimmed or its count changes under a finger. Centre always starts voice.
+    // hidden or its count changes under a finger. Centre always starts voice.
     s.hits[s.hit_count++] = (hit_t){{33, 66, 400, 316}, A_PET, 0, true};
 }
 static void render_agents(ht_scene_t *f)
@@ -1012,27 +1020,52 @@ static void tabs_move(int dy)
     if (next != s.offset) { s.offset = next; change(); }
     else s.tab_drag = 0; // Overscroll never builds up travel to undo on reversal.
 }
+static void tab_name(ht_scene_t *f, const char *name, int center_x, uint16_t ink)
+{
+    int first = f->count;
+    ht_wrap(f, 0, 0, 340, 4, 0, UI_FONT, ink, name[0] ? name : "Untitled");
+    while (f->count > first && !f->runs[f->count - 1].text[0]) f->count--;
+    int rows = f->count - first;
+    for (int i = first; i < f->count; i++) {
+        ht_run_t *r = &f->runs[i];
+        const char *p = r->text;
+        int cells = 0;
+        while (*p) { ht_utf8_next(&p); cells++; }
+        int x = center_x - cells * UI_FONT->width / 2;
+        p = r->text;
+        // The moving names stay inside a central, round-screen-safe viewport.
+        // Discard whole cells at its edges; no framebuffer or scissor allocation.
+        while (*p && x < 42) { ht_utf8_next(&p); x += UI_FONT->width; cells--; }
+        memmove(r->text, p, strlen(p) + 1);
+        int room = x >= 424 ? 0 : (424 - x) / UI_FONT->width;
+        if (room < cells) cells = room;
+        p = r->text;
+        for (int n = 0; n < cells; n++) ht_utf8_next(&p);
+        r->text[p - r->text] = 0;
+        r->x = x; r->y = 233 - rows * UI_FONT->height / 2 + (i - first) * UI_FONT->height;
+        r->w = cells * UI_FONT->width;
+    }
+}
 static void render_tabs(ht_scene_t *f)
 {
-    heading(f, "tabs");
-    int last = s.tab_count > TAB_ROWS ? s.tab_count - TAB_ROWS : 0;
-    if (s.offset > last) s.offset = last;
-    if (s.offset < 0) s.offset = 0;
-    if (!s.tab_count) {
-        center(f, 218, "No tabs yet.", DIM);
-        return;
+    ht_arc_title(f, DIM, "tabs");
+    int current = ht_tab_carousel_index(&tab_carousel);
+    if (current < 0) center(f, 214, "No tabs yet.", DIM);
+    else {
+        for (int i = current - 1; i <= current + 1; i++) {
+            if (i < 0 || i >= s.tab_count) continue;
+            int dx = i * HT_TAB_PITCH - tab_carousel.position;
+            if (abs(dx) >= 360) continue;
+            uint16_t ink = !s.connected ? DIM : !strcmp(s.tabs[i].id, s.selected_tab) ? ACCENT : FG;
+            ink = ht_character_caption_ink(ink, BG, 255 - abs(dx) * 210 / HT_TAB_PITCH);
+            tab_name(f, s.tabs[i].name, 233 + dx, ink);
+        }
+        s.hits[s.hit_count++] = (hit_t){{33, 110, 400, 252}, A_TAB, current, s.connected && !s.loading};
     }
-    for (int row = 0; row < TAB_ROWS && s.offset + row < s.tab_count; row++) {
-        int i = s.offset + row, y = TAB_TOP + row * TAB_ROW_HEIGHT;
-        int hit = s.hit_count++;
-        s.hits[hit] = (hit_t){{59, y, 348, TAB_ROW_HEIGHT}, A_TAB, i, s.connected};
-        bool selected = !strcmp(s.selected_tab, s.tabs[i].id);
-        char label[HT_TEXT_BYTES];
-        snprintf(label, sizeof label, " %s", s.tabs[i].name);
-        ht_text(f, 71, y + 14, 324, UI_FONT,
-                !s.connected ? DIM : selected || hit == s.pressed ? ACCENT : FG,
-                selected || hit == s.pressed ? SEL : BG, label);
-    }
+    ht_text(f, 125, 398, 28, &ht_nav_32, DIM, BG, "←");
+    s.hits[s.hit_count++] = (hit_t){{78, 381, 130, 74}, A_HOME, 0, true};
+    ht_text(f, 221, 398, 136, UI_FONT, DIM, BG, "controls");
+    s.hits[s.hit_count++] = (hit_t){{214, 381, 174, 74}, A_SETTINGS, 0, true};
 }
 static void render_notice(ht_scene_t *f)
 {
@@ -1362,6 +1395,10 @@ static bool queue(action_t a)
     (void)a;
     return false; // Never enqueue a desktop or audio action in the visual study.
 #endif
+    // Background read receipts must never occupy the last touch/audio slot or
+    // replace the screen with a cable-busy warning. Retry quietly next tick.
+    if (a.kind == A_NOTICE_READ)
+        return actions && uxQueueSpacesAvailable(actions) > 1 && xQueueSend(actions, &a, 0) == pdPASS;
     // A live scroll owns the final slot, so a stalled USB writer cannot drop its UP.
     if (actions && ((!scroll.live && !selection.active && !visit.id[0]) || uxQueueSpacesAvailable(actions) > 1) &&
         xQueueSend(actions, &a, 0) == pdPASS)
@@ -1691,14 +1728,9 @@ static void dispatch(action_t a)
             COPY(s.title,"Return"); COPY(s.message,"The cable is busy. Try again."); view(MESSAGE);
         }
         break;
-    case A_TABS: {
-        view(TABS);
-        int index=workspace_index(s.selected_tab);
-        int last=s.tab_count>TAB_ROWS ? s.tab_count-TAB_ROWS : 0;
-        int first=index-TAB_ROWS/2;
-        s.offset=first<0 ? 0 : first>last ? last : first;
+    case A_TABS:
+        tabs_open();
         break;
-    }
     case A_MACHINES:
         view(MACHINES);
         break;
@@ -1977,6 +2009,7 @@ static void dispatch(action_t a)
         }
         break;
     case A_QUESTION_READ:
+    case A_NOTICE_READ:
     case A_TAB_REFRESH:
     case A_NONE:
     case A_SELECT_SEND:
@@ -2037,6 +2070,9 @@ static void worker(void *unused)
             break;
         case A_DESKTOP:
             cable_client_send_open(a.id, NULL);
+            break;
+        case A_NOTICE_READ:
+            cable_client_notification_read(a.id, a.text);
             break;
         case A_TAB: {
             display_lock();
@@ -2184,7 +2220,13 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
         return;
     }
     bool surface = s.view == HOME || s.view == AGENT;
-    if (s.touch_down && !s.touch_cancelled) surface_tick(now);
+    if (s.touch_down && !s.touch_cancelled) {
+        // Classify this sample before the hold deadline. A delayed MOVE/UP
+        // must not turn a long swipe into a stationary hold.
+        ht_gesture_move(&gesture, x, y);
+        surface_tick(now);
+    }
+    surface = s.view == HOME || s.view == AGENT;
     if (down && !s.touch_down) {
         s.touch_cancelled = false;
         s.touch_brake = s.coasting && (int32_t)(now - s.coast_until) < 0;
@@ -2211,6 +2253,7 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
         if (surface && !home_footer(pressed_action.kind) && s.rim_enabled && ht_scroll_on_rim(x, y)) pressed_action.kind = A_NONE;
         if (surface && pressed_action.kind==A_TABS && !s.touch_brake)
             ht_workspace_touch(&workspace,workspace_index(s.selected_tab),s.tab_count,x,y,now);
+        if (s.view == TABS && pressed_action.kind == A_TAB) ht_tab_carousel_begin(&tab_carousel, x, now);
         ht_gesture_begin(&gesture, x, y, now, ((uint32_t)s.view << 8) | pressed_action.kind);
         if (pressed_action.kind != A_PET && pressed_action.kind != A_FORM_MAIN && pressed_action.kind != A_FORM_SAY &&
             pressed_action.kind != A_ANSWER && pressed_action.kind != A_DRAFT_SEND && pressed_action.kind != A_DRAFT_EDIT &&
@@ -2230,13 +2273,9 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
         ht_gesture_move(&gesture, x, y);
         if (surface && home_footer(pressed_action.kind)) {
             if (pressed_action.kind==A_TABS && ht_workspace_move(&workspace,x,y,gesture.axis,now)) change();
-        } else if (s.quick_open) {
-            int dx = x - s.start_x, dy = y - s.start_y;
-            int choice = 0;
-            if (dx * dx + dy * dy > 54 * 54)
-                choice = abs(dx) > abs(dy) ? (dx < 0 ? 3 : 2) : (dy < 0 ? 1 : 4);
-            if (choice != s.quick_choice) { s.quick_choice = choice; change(); }
-        } else if ((s.view == TABS || s.view == AGENTS || s.view == SETTINGS) && gesture.axis == 1) {
+        } else if (s.view == TABS) {
+            if (gesture.axis == 2 && ht_tab_carousel_move(&tab_carousel, x, now)) change();
+        } else if ((s.view == AGENTS || s.view == SETTINGS) && gesture.axis == 1) {
             tabs_move((s.last_y - y) * (scroll_reversed ? -1 : 1));
         } else if (s.view == DRAFT && gesture.axis == 1) {
             draft_move((s.last_y - y) * (scroll_reversed ? -1 : 1), now);
@@ -2256,8 +2295,10 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
     }
     if (!down && s.touch_down) {
         ht_touch_result_t result = ht_gesture_end(&gesture, x, y, now);
-        if (!s.touch_cancelled && (s.view == TABS || s.view == AGENTS || s.view == SETTINGS) && gesture.axis == 1)
+        if (!s.touch_cancelled && (s.view == AGENTS || s.view == SETTINGS) && gesture.axis == 1)
             tabs_move((s.last_y - y) * (scroll_reversed ? -1 : 1));
+        bool tab_contact = s.view == TABS && tab_carousel.touching;
+        bool tab_tap = tab_contact && ht_tab_carousel_end(&tab_carousel, x, gesture.axis == 2, now);
         bool scrolled = ht_scroll_end(&scroll, x, y, now);
         if (scrolled) {
             uint32_t coast = ht_scroll_coast_ms(scroll.velocity);
@@ -2266,18 +2307,13 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
         }
         int dx = x - s.start_x, dy = y - s.start_y;
         s.pressed = -1;
-        if (s.quick_open && !s.touch_cancelled) {
-            // Use the release coordinates too: lifting after sliding back to
-            // the center cancels, even if no final MOVE sample was delivered.
-            int choice = 0;
-            if (dx * dx + dy * dy > 54 * 54)
-                choice = abs(dx) > abs(dy) ? (dx < 0 ? 3 : 2) : (dy < 0 ? 1 : 4);
-            static const action_kind_t destinations[] = {A_NONE, A_AGENTS, A_INBOX, A_TABS, A_SETTINGS};
-            s.quick_open = false;
-            if (choice) dispatch((action_t){.kind = destinations[choice]});
+        if (scrolled || s.touch_cancelled) {
+            // Motion owns this entire contact, even if it returns to its start.
+        } else if (tab_contact) {
+            int index = ht_tab_carousel_index(&tab_carousel);
+            if (tab_tap && result == HT_TOUCH_TAP && pressed_action.kind == A_TAB && index >= 0 &&
+                index < s.tab_count && !strcmp(pressed_action.id, s.tabs[index].id)) dispatch(pressed_action);
             change();
-        } else if (scrolled || s.touch_cancelled) {
-            // Motion owns this entire contact, even if the finger returns to its starting point.
         } else if (result == HT_TOUCH_TAP && s.touch_brake) {
             // DOWN already stopped desktop inertia. This entire tap is only a brake.
         } else if (surface && pressed_action.kind==A_TABS) {
@@ -2311,8 +2347,8 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
                 dispatch((action_t){.kind = A_VOICE_STOP, .value = 1});
             } else if (s.view == DRAFT && pressed_action.kind == A_DRAFT_EDIT) {
                 pressed_action.kind = A_DRAFT_OPTIONS; dispatch(pressed_action);
-            } else if ((surface && pressed_action.kind == A_PET) || pressed_action.kind == A_HOME || pressed_action.kind == A_TABS)
-                dispatch((action_t){.kind = A_SETTINGS});
+            } else if (surface && pressed_action.kind == A_PET)
+                tabs_open();
         } else if (result == HT_TOUCH_TAP) {
             if (pressed_action.kind == A_PET) {
                 if (surface) dispatch(pressed_action); // immediate, harmless acknowledgement
@@ -2351,7 +2387,9 @@ void habitat_touch(bool down, int x, int y, uint32_t now)
                 if (next >= 0 && next < count) s.offset = next;
             }
         } else if (gesture.axis == 2 && abs(dx) > 60 && abs(dx) > abs(dy)) {
-            if (s.view == DRAFT || s.view == DRAFT_OPTIONS) {
+            if (s.view == TABS) {
+                // The carousel owns horizontal motion, including contacts that began on its footer.
+            } else if (s.view == DRAFT || s.view == DRAFT_OPTIONS) {
                 if (dx > 0) {
                     action_t a = make_action((hit_t){.action = s.view == DRAFT ? A_DRAFT_OPTIONS : A_DRAFT_BACK});
                     dispatch(a);
@@ -2399,6 +2437,7 @@ uint32_t habitat_next_wake_ms(void)
         return delay;
     if (s.voice_open)
         delay = 125;
+    if (s.view == TABS && tab_carousel.animating && !s.locked && !display_is_asleep()) delay = 16;
     if (selection.pending && delay > 100) delay = 100;
     if (visit.pending && delay > 100) delay = 100;
     if (s.view == FORM && delay > 100) delay = 100;
@@ -2412,7 +2451,7 @@ uint32_t habitat_next_wake_ms(void)
     if ((s.view == HOME || s.view == AGENT) && pressed_action.kind == A_PET && s.touch_down && !s.touch_cancelled &&
         gesture.live && !gesture.moved && !gesture.guarded) {
         uint32_t elapsed = now - s.touch_started;
-        uint32_t due = s.quick_open ? 5000 : 650;
+        uint32_t due = 650;
         uint32_t left = elapsed >= due ? 1 : due - elapsed;
         if (left < delay) delay = left;
     }
@@ -3182,16 +3221,60 @@ void ui_notif_seen(const char *id)
     // change. That acknowledgement also completes the requested inbox open.
     if (opened) ui_focus_project(id);
 }
+void ui_notif_read(const char *id, const char *token)
+{
+    if (!id || !token || !token[0]) return;
+    display_lock();
+    for (int i = 0; i < NOTICES; i++)
+        if (!strcmp(s.notice_reads[i].id, id) && !strcmp(s.notice_reads[i].token, token))
+            s.notice_reads[i].pending = false;
+    bool opened = false;
+    for (int i = 0; i < s.notice_count; i++) {
+        cable_notif_t *n = &s.notice[i];
+        if (strcmp(n->agent_id, id) || strcmp(n->read_token, token)) continue;
+        n->read_on_dial = true;
+        opened = !strcmp(s.opening_notice, id);
+        if (s.view != INBOX || i != s.offset || opened) {
+            notice_remove(id, true); notice_sync_view();
+        }
+        change(); break;
+    }
+    display_unlock();
+    if (opened) ui_focus_project(id);
+}
 void ui_notif_replace(const cable_notif_t *rows, int count)
 {
     display_lock();
     char selected[ID_MAX]; notice_selection(selected, sizeof selected);
+    cable_notif_t held = {0};
+    if (selected[0] && s.notice[s.offset].read_on_dial && s.notice[s.offset].read_token[0])
+        held = s.notice[s.offset];
     if (!rows || count < 0) count = 0;
     if (count > NOTICES) count = NOTICES;
     s.notice_count = 0;
-    for (int i = count - 1; i >= 0; i--)
+    for (int i = count - 1; i >= 0; i--) {
         notice_add(rows[i].agent_id, rows[i].name, rows[i].machine, rows[i].summary,
                    rows[i].question, rows[i].failed);
+        for (int j = 0; j < s.notice_count; j++) if (!strcmp(s.notice[j].agent_id, rows[i].agent_id)) {
+            COPY(s.notice[j].read_token, rows[i].read_token);
+            s.notice[j].read_on_dial = notice_was_read(&s.notice[j]);
+            break;
+        }
+    }
+    // An authoritative absence acknowledges the read. It must not make the
+    // card disappear while the person is still reading it.
+    for (int i = 0; i < NOTICES; i++) if (s.notice_reads[i].pending) {
+        bool present = false;
+        for (int j = 0; j < count; j++)
+            if (!strcmp(rows[j].agent_id, s.notice_reads[i].id) &&
+                !strcmp(rows[j].read_token, s.notice_reads[i].token)) present = true;
+        if (!present) s.notice_reads[i].pending = false;
+    }
+    bool retained = false;
+    for (int i = 0; i < s.notice_count; i++) if (!strcmp(s.notice[i].agent_id, selected)) retained = true;
+    if (held.agent_id[0] && !retained && s.notice_count < NOTICES) {
+        s.notice[s.notice_count++] = held;
+    }
     notice_restore_selection(selected);
     notice_sync_view();
     change();
@@ -3333,14 +3416,21 @@ void ui_swarms_replace(const cable_swarm_t *rows, int count, const char *selecte
     display_lock();
     int bounded=count<0 ? 0 : count>SWARMS_MAX ? SWARMS_MAX : count;
     if (!rows) bounded=0;
+    char focused[ID_MAX] = "";
+    int focused_index = ht_tab_carousel_index(&tab_carousel);
+    if (s.view == TABS && focused_index >= 0 && focused_index < s.tab_count) COPY(focused, s.tabs[focused_index].id);
     bool changed=bounded!=s.tab_count || strcmp(s.selected_tab,selected ? selected : "");
     for (int i=0;!changed && i<bounded;i++) {
-        changed=strcmp(rows[i].id,s.tabs[i].id) || strcmp(rows[i].name,s.tabs[i].name) || rows[i].panes!=s.tabs[i].panes;
+        changed=strcmp(rows[i].id,s.tabs[i].id) || strcmp(rows[i].name,s.tabs[i].name);
     }
     if (changed && (workspace.touching || s.view == TABS)) input_cancel();
     s.tab_count=bounded;
     if (bounded) memcpy(s.tabs,rows,(size_t)bounded*sizeof *rows);
     COPY(s.selected_tab,selected);
+    if (changed && s.view == TABS) {
+        int index = workspace_index(focused);
+        ht_tab_carousel_reset(&tab_carousel, bounded, index >= 0 ? index : workspace_index(s.selected_tab));
+    }
     if (workspace.phase!=HT_WORKSPACE_IDLE && workspace_index(workspace.pending)<0) {
         workspace_failed("That workspace is gone. Choose another.");
     } else if (ht_workspace_selected(&workspace,s.selected_tab)) {

@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+from native_shapes import defines
 
 main = Path(__file__).resolve().parent / '../main'
 source = Path(os.environ.get('CABLE_OUTBOUND_SOURCE', main / 'cable_client.c')).read_text()
@@ -67,18 +68,19 @@ static void audio_client_copy_selection(char *out,size_t n,unsigned *revision) {
 }
 static bool audio_client_review_requested(void) {return review;}
 '''
+code += defines('ID_MAX', 'CABLE_READ_TOKEN_MAX')
 for name in ['cable_client_supports', 'send_json', 'msg']:
     code += function(name)
 for name in ['msg_check', 'msg_string', 'msg_number', 'msg_bool', 'msg_array', 'msg_item']:
     code += function(name, optional=True)
 for name in ['select_machine', 'select_swarm', 'send_turn', 'stop_turn', 'send_focus', 'send_open',
-             'send_scroll', 'answer', 'question_read', 'answer_reviewed', 'agent_update',
+             'notification_read', 'send_scroll', 'answer', 'question_read', 'answer_reviewed', 'agent_update',
              'voice_begin', 'carry', 'form', 'visit', 'select_text', 'draft', 'voice_end',
              'voice_abort', 'voice_cancel', 'voice_confirm', 'fw_error', 'fw_progress']:
     code += function('cable_client_' + name)
 code += function('cable_client_request_agents')
 code += r'''
-enum { CASES=25 };
+enum { CASES=26 };
 static void run(unsigned which) {
     static const uint8_t choices[]={1,2,4,8};
     static const char drafts[4][48]={"Keep the quoted \"text\".","", "Line 1\nLine 2", "é ↗"};
@@ -108,6 +110,7 @@ static void run(unsigned which) {
     case 22:cable_client_fw_progress(UINT32_MAX);break;
     case 23:cable_client_carry("carry-1234",NULL,NULL,0,0,true);break;
     case 24:cable_client_voice_begin(NULL,NULL,NULL,16000);break;
+    case 25:cable_client_notification_read("target-agent","notice-42");break;
     default:assert(false);
     }
 }
