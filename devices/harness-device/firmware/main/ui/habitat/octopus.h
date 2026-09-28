@@ -8,7 +8,7 @@ enum { HT_OCTOPUS_FRAMES = 63, HT_OCTOPUS_COLS = 54, HT_OCTOPUS_ROWS = 27,
 // the bottom arc; moving it must never make its target cover the portrait.
 enum { HT_OCTOPUS_BRIEF_Y = 96, HT_OCTOPUS_READING_Y = 92,
        HT_OCTOPUS_BRIEF_TEXT_Y = 284, HT_OCTOPUS_READING_TEXT_Y = 224 };
-extern const ht_font_t ht_octopus_font_2, ht_octopus_font_4, ht_octopus_font_6, ht_octopus_font_8, ht_octopus_font_10;
+extern const ht_font_t ht_octopus_font_2, ht_octopus_font_4, ht_octopus_font_6, ht_octopus_font_8, ht_octopus_font_10, ht_octopus_font_12;
 #ifdef DEVICE_LAYOUT_BENCH
 void ht_octopus_fast_scene(bool enabled);
 #endif

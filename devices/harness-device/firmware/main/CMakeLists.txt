@@ -171,6 +171,7 @@ if(DEVICE_HABITAT)
         "ui/habitat/gestures.c"
         "ui/habitat/tim.c"
         "ui/habitat/character.c"
+        "ui/habitat/companion.c"
         "ui/habitat/character_motion.c"
         "ui/habitat/character_layout.c"
         "ui/habitat/tux.c"
@@ -242,7 +243,7 @@ if(BOARD_PROBE AND NOT IDF_TARGET STREQUAL "esp32p4")
 endif()
 
 if(DEVICE_HABITAT)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_HABITAT=1)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_HABITAT=1 DEVICE_DESKTOP_COMPANION=1)
     if(DEVICE_HABITAT_ORANGE)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_HABITAT_ORANGE=1)
     endif()

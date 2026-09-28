@@ -1761,6 +1761,13 @@ int main(int argc, char **argv) {
 '''
 extra_sources = []
 extra_includes = ['-DDEVICE_HABITAT_ORANGE=1'] if os.environ.get('HABITAT_TEST_ORANGE') else []
+if os.environ.get('HABITAT_COMPANION_TEST'):
+    assert not os.environ.get('HABITAT_BRIDGE_TRACE'), 'Run the two specialized replays separately'
+    from companion_touch_replay import instrument
+    code = instrument(code, source)
+    json_dir = Path(os.environ['IDF_PATH']) / 'components/json/cJSON'
+    extra_sources = [str(native / 'companion.c'), str(json_dir / 'cJSON.c')]
+    extra_includes += ['-DDEVICE_DESKTOP_COMPANION=1', '-I', str(json_dir), '-Wno-deprecated-declarations']
 if os.environ.get('HABITAT_BRIDGE_TRACE'):
     from bridge_flow_replay import instrument
     code = instrument(code, os.environ['HABITAT_BRIDGE_TRACE'], native.parent.parent)
