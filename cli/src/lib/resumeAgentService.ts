@@ -15,6 +15,7 @@ import { buildHarnessSessionLabel } from './harnessSessionLabel.js'
 import { createAndRegisterPane, type CreateAgentPaneDeps } from './createAgentPane.js'
 import type { LaunchOverrides, LaunchOverridesResult } from './launchOverrides.js'
 import type { AgentRestartCoordinator } from './restartAgent.js'
+import { externalPaneRefused, isExternallyOwned } from './agentOwnership.js'
 
 export interface ResumeAgentServiceDeps {
   registry: Pick<typeof liveRegistry, 'byAgent' | 'bySession' | 'resumePendingAgent' | 'setLaunch' | 'updateProcessIdentity'>
@@ -259,11 +260,18 @@ export function createResumeAgentService(deps: ResumeAgentServiceDeps) {
     },
   })
 
-  return (agentId: string) => restartJobs.run(agentId, async current => {
-    await stopJobs.get(agentId)
-    if (!current()) return resumeChanged
-    if (pinnedControls.has(agentId)) return { ok: false, error: 'AGENT_BUSY' }
-    return resumeStopped(agentId, current)
-  }, 'resume')
+  return (agentId: string) => {
+    // Neither a live borrowed pane nor an archive claiming one is resumed or relaunched: refused
+    // before a lifecycle job is allocated. An unreadable archive is left to the normal path's errors.
+    let saved: RegisteredSession | null = null
+    try { saved = stoppedAgents.get(agentId) } catch { /* reported by the resume path itself */ }
+    if (isExternallyOwned(registry.byAgent(agentId)) || isExternallyOwned(saved)) return Promise.resolve(externalPaneRefused)
+    return restartJobs.run(agentId, async current => {
+      await stopJobs.get(agentId)
+      if (!current()) return resumeChanged
+      if (pinnedControls.has(agentId)) return { ok: false, error: 'AGENT_BUSY' }
+      return resumeStopped(agentId, current)
+    }, 'resume')
+  }
 
 }

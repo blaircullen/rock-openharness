@@ -31,6 +31,7 @@ import { isTerminalEngine, type AgentEngine } from '../engines/types.js'
 import type { AgentLaunch, ProcessIdentity, RegisteredSession } from './registry.js'
 import type { TerminalRuntimeRef, TmuxRuntimeRef } from './terminalTypes.js'
 import { terminalRouteKey } from './terminalRuntime.js'
+import { isExternallyOwned } from './agentOwnership.js'
 
 export interface RestoreLaunch {
   argv: string[]
@@ -144,6 +145,9 @@ export async function restoreAgents(deps: RestoreAgentsDeps): Promise<RestoreSum
   // whole desk comes back empty. A row that cannot be surveyed is reported and the rest go on.
   for (const entry of deps.registry.list()) {
    try {
+    // A borrowed pane is never recreated, released or re-identified: it was never Harness's pane,
+    // and the managed inventory cannot even see it (a whitelist miss is not a missing pane).
+    if (isExternallyOwned(entry)) { summary.skipped.push({ agentId: entry.agentId, reason: 'external pane' }); continue }
     const runtime = tmuxRuntime(entry)
     if (!runtime) { summary.skipped.push({ agentId: entry.agentId, reason: 'no tmux pane' }); continue }
     if (entry.launch?.state === 'failed') { summary.skipped.push({ agentId: entry.agentId, reason: 'last launch failed' }); continue }
@@ -248,9 +252,17 @@ export async function restoreAgents(deps: RestoreAgentsDeps): Promise<RestoreSum
         continue
       }
       const key = terminalRouteKey(created.runtime)
+      // The registry refused to move the row onto its new pane (it was deleted mid-restore, or is no
+      // longer one Harness may route): nothing is announced or marked. The new pane is left where it
+      // is — the only handle on it is a bare pane id, and a pane id is never proof enough to kill.
+      const unrouted = (): void => {
+        const reason = `the registry refused the new pane ${created.runtime.paneId}; it was left open, not attached`
+        summary.failed.push({ agentId: entry.agentId, reason })
+        deps.log(`[restore] ${entry.engine} · agent ${entry.agentId} · ${reason}`)
+      }
       // A terminal is up the moment its pane is — no engine to wait for, no route to hold.
       if (isTerminalEngine(entry.engine)) {
-        deps.registry.updateRuntimes(entry.agentId, [created.runtime], key)
+        if (!deps.registry.updateRuntimes(entry.agentId, [created.runtime], key)) { unrouted(); continue }
         deps.registry.setLaunch(entry.agentId, { state: 'ready' })
         await deps.clearRemainOnExit(created.runtime)
         summary.restored.push(entry.agentId)
@@ -258,7 +270,11 @@ export async function restoreAgents(deps: RestoreAgentsDeps): Promise<RestoreSum
         continue
       }
       deps.holdRoute(key, budgetMs + HOLD_SLACK_MS)
-      deps.registry.updateRuntimes(entry.agentId, [created.runtime], key)
+      if (!deps.registry.updateRuntimes(entry.agentId, [created.runtime], key)) {
+        deps.releaseRoute(key)
+        unrouted()
+        continue
+      }
       deps.registry.setLaunch(entry.agentId, { state: 'starting' })
       summary.restored.push(entry.agentId)
       // The grid is named because the pane gives nothing away: the engine looks exactly like one on

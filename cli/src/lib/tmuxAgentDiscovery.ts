@@ -19,6 +19,7 @@ import { probeGridAssignment, type GridAssignment } from './gridAssignment.js'
 import { probeCodexHome } from './codexHomeProbe.js'
 import { buildHarnessSessionLabel, isHarnessSession, isLegacyHarnessSession } from './harnessSessionLabel.js'
 import { psEnv } from './childLocale.js'
+import { externalOnlyTmuxPanes, isExternallyOwned } from './agentOwnership.js'
 import type { ProcessIdentity, RegisteredSession } from './registry.js'
 import {
   ambiguousAgentProcess,
@@ -127,14 +128,8 @@ export type TmuxPaneInventory =
   | { ok: true; panes: TmuxPaneSnapshot[] }
   | { ok: false; error: string }
 
-/**
- * One bounded tmux inventory read, shared by discovery and the neutral backend adapter.
- *
- * Only panes from sessions this daemon itself named via `agent_create` are returned — a session
- * the user opened by hand, or one an agent spawned itself with a nested `tmux new-session`, is
- * invisible to every discovery path (autonomous-harness-desktop#6).
- */
-export async function listTmuxPanes(): Promise<TmuxPaneInventory> {
+/** One bounded tmux inventory read. Errors other than an absent server remain errors. */
+async function readTmuxPaneInventory(): Promise<TmuxPaneInventory> {
   // Printable delimiters survive tmux's POSIX-locale output sanitiser. Split only the three fixed
   // separators so a legitimate `|` in pane_current_path remains part of the path.
   const result = await execText('tmux', ['list-panes', '-a', '-F', '#{pane_id}|#{pane_pid}|#{session_name}|#{pane_current_path}'], 2_000)
@@ -145,7 +140,24 @@ export async function listTmuxPanes(): Promise<TmuxPaneInventory> {
     if (isNoTmuxServerError(result.error)) return { ok: true, panes: [] }
     return result
   }
-  return { ok: true, panes: parsePanes(result.stdout).filter((pane) => isHarnessSession(pane.tmuxSessionName)) }
+  return { ok: true, panes: parsePanes(result.stdout) }
+}
+
+/** Harness-owned inventory used by existing reconciliation paths. Keep this whitelist intact. */
+export async function listTmuxPanes(): Promise<TmuxPaneInventory> {
+  const inventory = await readTmuxPaneInventory()
+  return inventory.ok
+    ? { ok: true, panes: inventory.panes.filter((pane) => isHarnessSession(pane.tmuxSessionName)) }
+    : inventory
+}
+
+/**
+ * Complete read-only tmux inventory for explicit session selection/enrollment. Unlike
+ * `listTmuxPanes`, this includes every session name, including `harness-*`; a name prefix alone
+ * is not proof of registry ownership. This does not enroll, rename, attach, resize, or mutate.
+ */
+export async function listAllTmuxPanes(): Promise<TmuxPaneInventory> {
+  return readTmuxPaneInventory()
 }
 
 export interface AdoptedLegacySession { from: string; to: string; paneId: string }
@@ -408,8 +420,11 @@ export class TmuxAgentReconciler {
     // Retroactive: a pane from an older build (before tmuxBackend.create() started doing this itself)
     // or one that survived a daemon restart never got `mouse on` set. Fire-and-forget — a scan that
     // misses one because tmux was briefly slow just catches it on the next pass.
+    // Never a pane only an external row claims — see externalOnlyTmuxPanes. Rechecked each scan, so a
+    // managed row that later takes the id gets its `mouse on` then.
+    const borrowed = externalOnlyTmuxPanes(this.deps.current())
     for (const pane of probe.panes) {
-      if (this.mouseEnabledPanes.has(pane)) continue
+      if (this.mouseEnabledPanes.has(pane) || borrowed.has(pane)) continue
       this.mouseEnabledPanes.add(pane)
       void setPaneMouseOn(pane)
     }
@@ -429,7 +444,8 @@ export class TmuxAgentReconciler {
     const observedKeys = new Set(probe.agents.map(runtimeKey))
     for (const key of [...this.suppressed]) if (!observedKeys.has(key)) this.suppressed.delete(key)
 
-    const before = this.deps.current()
+    // Borrowed (external) panes are outside managed reconciliation — see TerminalAgentReconciler.managed.
+    const before = this.deps.current().filter((row) => !isExternallyOwned(row))
     const byPane = new Map(before.map((agent) => [agent.tmuxPane, agent]))
     const observedAgentIds = new Set<string>()
 

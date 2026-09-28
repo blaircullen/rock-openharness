@@ -1,4 +1,5 @@
 import type { RegisteredSession } from './registry.js'
+import { isExternallyOwned } from './agentOwnership.js'
 import type { TerminalBackend } from './terminalBackend.js'
 import { processIdentityKey, terminalInstanceId, terminalPlacementKey, terminalRouteKey } from './terminalRuntime.js'
 import {
@@ -85,7 +86,14 @@ export class TerminalBackendCoordinator {
     return this.byInstance.get(terminalInstanceId(runtime))
   }
 
+  /**
+   * ⚠️ The one gate every operation below goes through. An external row's pane id names a pane on a
+   * tmux server these backends cannot address (agentOwnership.ts): resolving it here would read,
+   * stream, type into or rename whatever managed pane reuses that id. It has no route until
+   * endpoint-aware routing exists, so every read fails and every action is not started.
+   */
   private orderedRuntimes(session: RegisteredSession): TerminalRuntimeRef[] {
+    if (isExternallyOwned(session)) return []
     const configured = session.runtimes.filter((runtime) => this.backendFor(runtime))
     return configured.toSorted((a, b) => {
       const aPrimary = terminalRouteKey(a) === session.primaryRuntimeKey
@@ -99,6 +107,8 @@ export class TerminalBackendCoordinator {
   }
 
   async validate(session: RegisteredSession): Promise<RuntimeValidation> {
+    // Unknown, never gone: this daemon cannot look, and a miss must not read as the pane having ended.
+    if (isExternallyOwned(session)) return { state: 'unknown', reason: 'external terminal is not routable' }
     if (!session.active) return { state: 'gone', reason: 'terminal agent is dormant' }
     let unknown: RuntimeValidation | null = null
     for (const runtime of this.orderedRuntimes(session)) {
@@ -137,6 +147,7 @@ export class TerminalBackendCoordinator {
   }
 
   leaseIsCurrent(lease: TerminalControlLease, session: RegisteredSession): boolean {
+    if (isExternallyOwned(session)) return false
     if (lease.agentId !== session.agentId || lease.generation !== runtimeGeneration(session)) return false
     const current = session.runtimes.find((runtime) => terminalPlacementKey(runtime) === lease.placementKey)
     if (!current) return false

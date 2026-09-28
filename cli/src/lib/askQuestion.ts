@@ -24,6 +24,7 @@
  */
 
 import type { RegisteredSession } from './registry.js'
+import { EXTERNAL_PANE, EXTERNAL_PANE_DETAIL, isExternallyOwned } from './agentOwnership.js'
 import type { AgentEngine } from '../engines/types.js'
 import { locateMuseQuestion } from '../engines/muse/askQuestion.js'
 import { ampSelectionKeys, parseAmpQuestionPane } from '../engines/amp/askQuestion.js'
@@ -729,7 +730,7 @@ export function questionRequestId(sessionId: string, view: QuestionView): string
 }
 
 /** Why an answer was not keyed. Sent back to the client as `question_response_result.error`. */
-export type QuestionAnswerError = 'STALE_QUESTION' | 'AGENT_NOT_FOUND' | 'ANSWER_BUSY' | 'ANSWER_FAILED'
+export type QuestionAnswerError = 'STALE_QUESTION' | 'AGENT_NOT_FOUND' | 'ANSWER_BUSY' | 'ANSWER_FAILED' | typeof EXTERNAL_PANE
 
 export type QuestionAnswerResult = { ok: true } | { ok: false; error: QuestionAnswerError; detail: string }
 
@@ -807,6 +808,9 @@ export class AskQuestionController {
       console.warn(`[question] no terminal target for ${sessionId.slice(0, 8)} — answer dropped`)
       return { ok: false, error: 'AGENT_NOT_FOUND', detail: 'That agent is no longer running.' }
     }
+    // Never keyed into a borrowed pane (agentOwnership.ts). The dial answers here without passing the
+    // socket's `question_response` gate, so this controller refuses too.
+    if (isExternallyOwned(session)) return { ok: false, error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL }
     if (remembered) {
       const owner = this.deps.getSession(remembered)
       if ((owner?.agentId || owner?.sessionId) !== terminalTarget) return STALE_CHANGED

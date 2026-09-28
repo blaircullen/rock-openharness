@@ -51,8 +51,14 @@ import { lockOwnerAlive, lockStartMarker, processLockIdentity } from './processL
 import { hardenPrivateStateFileIfPresent, readPrivateStateFile, secureStateDirectory } from './secureState.js'
 import { mergeTerminalRuntimes, processIdentityKey, terminalPlacementKey, terminalRouteKey } from './terminalRuntime.js'
 import type { HookTerminalHint, ProcessIdentity, TerminalRuntimeRef } from './terminalTypes.js'
+import {
+  EXTERNAL_ROW_SCHEMA_VERSION, copyOwnership, externalEndpointKey, isExternallyOwned, ownershipFitsRow,
+  persistedSchemaVersion, sameOwnership, type AgentOwnership, type ExternalTmuxOwnership,
+} from './agentOwnership.js'
 
 export type { ProcessIdentity } from './terminalTypes.js'
+export type { AgentOwnership, ExternalTmuxOwnership } from './agentOwnership.js'
+export { isExternallyOwned } from './agentOwnership.js'
 
 export type AgentLaunch =
   | { state: 'starting' }
@@ -242,6 +248,12 @@ export interface RegisteredSession {
    * about the agent. A client sorts by the later of this and the frame's `updatedAt`.
    */
   lastOpenedAt?: number
+  /**
+   * Who owns this row's terminal (agentOwnership.ts). Absent on every managed and legacy row. An
+   * external row is a terminal Harness borrowed and must never stop, respawn, recreate, retire or
+   * adopt an engine into. Rehydrated explicitly on load; malformed values block the registry.
+   */
+  ownership?: AgentOwnership
 }
 
 /** A saved row's `touchedAt`, which rows saved before 2026-09-27 call `updatedAt`. */
@@ -519,10 +531,19 @@ function tmuxProjection(runtimes: readonly TerminalRuntimeRef[]): string {
   return runtimes.find((runtime) => runtime.backend === 'tmux')?.paneId ?? ''
 }
 
+/** A row as written to disk. An external row is written as v3 — agentOwnership.ts's downgrade guard. */
 function persistedRow(entry: RegisteredSession): RegisteredSession | Omit<RegisteredSession, 'tmuxPane'> {
-  if (entry.tmuxPane) return { ...entry, runtimes: entry.runtimes.map((runtime) => ({ ...runtime })) }
+  const schemaVersion = persistedSchemaVersion(entry) as RegisteredSession['schemaVersion']
+  if (entry.tmuxPane) return { ...entry, schemaVersion, runtimes: entry.runtimes.map((runtime) => ({ ...runtime })) }
   const { tmuxPane: _legacy, ...row } = entry
-  return { ...row, runtimes: row.runtimes.map((runtime) => ({ ...runtime })) }
+  return { ...row, schemaVersion, runtimes: row.runtimes.map((runtime) => ({ ...runtime })) }
+}
+
+/** A stored row this build reads as the current schema: v2, or v3 (an external row). */
+function currentSchemaRow(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const version = (value as { schemaVersion?: unknown }).schemaVersion
+  return version === 2 || version === EXTERNAL_ROW_SCHEMA_VERSION
 }
 
 export function strictPersistedRow(raw: unknown): RegisteredSession | null {
@@ -535,7 +556,7 @@ export function strictPersistedRow(raw: unknown): RegisteredSession | null {
   const active = row.active === true
   const projectedTmuxPane = tmuxProjection(runtimes)
   const launch = normalizedLaunch(row.launch)
-  if (row.schemaVersion !== 2
+  if (!currentSchemaRow(row)
     || typeof row.active !== 'boolean'
     || typeof row.agentId !== 'string' || !row.agentId
     || typeof row.sessionId !== 'string'
@@ -551,9 +572,19 @@ export function strictPersistedRow(raw: unknown): RegisteredSession | null {
     || (row.processIdentity !== null && !validProcessIdentity(row.processIdentity))) return null
   const placements = runtimes.map(terminalPlacementKey)
   if (new Set(placements).size !== placements.length) return null
+  // Present means it must be exactly right for THIS row. Never dropped or read as managed: a row that
+  // claims an owner Harness cannot verify is rejected, which blocks the whole file (`load`/`save`).
+  if (row.ownership !== undefined && !ownershipFitsRow(row.ownership, {
+    engine: row.engine as AgentEngine, runtimes, sessionId: row.sessionId, processIdentity: row.processIdentity,
+  })) return null
+  // v3 exactly when external, so a v2-schema build that cannot honour the claim refuses the row
+  // instead of reading it (the downgrade guard in agentOwnership.ts — builds older than the v2 schema
+  // are below its floor and are NOT protected). An external claim on a v2 row is what a v2-schema
+  // build would silently strip; a v3 row without one has nothing to justify the version.
+  if ((row.schemaVersion as number) !== persistedSchemaVersion(row)) return null
   // Taken out of the spread and put back only when it is a real moment: the spread would otherwise
   // carry a hand-edited string or a negative number straight into the frame's `toISOString()`.
-  const { lastOpenedAt: rawOpenedAt, ...rest } = row
+  const { lastOpenedAt: rawOpenedAt, ownership: rawOwnership, ...rest } = row
   const lastOpenedAt = normalizedOpenedAt(rawOpenedAt)
   return {
     ...rest,
@@ -584,6 +615,7 @@ export function strictPersistedRow(raw: unknown): RegisteredSession | null {
     lastHookAt: typeof row.lastHookAt === 'number' ? row.lastHookAt : Date.now(),
     lastTranscriptAt: typeof row.lastTranscriptAt === 'number' ? row.lastTranscriptAt : Date.now(),
     ...(lastOpenedAt !== undefined ? { lastOpenedAt } : {}),
+    ...(rawOwnership !== undefined ? { ownership: copyOwnership(rawOwnership) } : {}),
   }
 }
 
@@ -613,10 +645,20 @@ function validatedRows(values: readonly unknown[]): RegisteredSession[] | null {
   const sessions = new Set<string>()
   const processes = new Set<string>()
   const routes = new Set<string>()
+  const endpoints = new Set<string>()
   for (const value of values) {
     const row = strictPersistedRow(value)
     if (!row || agents.has(row.agentId)) return null
     agents.add(row.agentId)
+    // An external row holds no pane-id route (agentOwnership.ts): a managed pane that reuses its id is
+    // not a collision. Two external rows claiming the same pane of the same server incarnation are.
+    if (isExternallyOwned(row)) {
+      const key = externalEndpointKey(row.ownership as ExternalTmuxOwnership)
+      if (endpoints.has(key)) return null
+      endpoints.add(key)
+      rows.push(row)
+      continue
+    }
     if (row.sessionId) {
       if (sessions.has(row.sessionId)) return null
       sessions.add(row.sessionId)
@@ -639,11 +681,14 @@ function validatedRows(values: readonly unknown[]): RegisteredSession[] | null {
 function hasUnknownRowSchema(value: unknown): boolean {
   return !!value && typeof value === 'object'
     && Object.hasOwn(value, 'schemaVersion')
-    && (value as { schemaVersion?: unknown }).schemaVersion !== 2
+    && !currentSchemaRow(value)
 }
 
 function validLegacyRegistryRow(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.hasOwn(value, 'schemaVersion')) return false
+  // Ownership is a v2 field. A legacy row carrying one was hand-edited or written by an unknown build;
+  // migrating it would either drop the claim or trust it unvalidated.
+  if (Object.hasOwn(value, 'ownership')) return false
   const row = value as Partial<RegisteredSession>
   const id = rowId(row)
   if (!boundedIdentityPart(id)) return false
@@ -652,6 +697,29 @@ function validLegacyRegistryRow(value: unknown): boolean {
   if (row.runtimes !== undefined
     && (!Array.isArray(row.runtimes) || !row.runtimes.length || !row.runtimes.every(validTerminalRuntime))) return false
   return normalizedRuntimes(row.runtimes, row.tmuxPane).length > 0
+}
+
+/**
+ * Whether a stored or merged row makes ANY ownership claim other than plain managed — including a
+ * malformed one, or the external schema version without the field. Used only to decide that a conflict
+ * belongs to a claim, so it errs toward yes.
+ */
+function claimsOwnership(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const row = value as { ownership?: unknown; schemaVersion?: unknown }
+  return row.schemaVersion === EXTERNAL_ROW_SCHEMA_VERSION
+    || (Object.hasOwn(row, 'ownership') && isExternallyOwned(row))
+}
+
+/** Whether dropping every ownership claim would make these rows valid: the claims are the conflict. */
+function claimConflict(values: readonly unknown[]): boolean {
+  const unclaimed = values.filter((value) => !claimsOwnership(value))
+  return unclaimed.length !== values.length && validatedRows(unclaimed) !== null
+}
+
+function ownershipDrifted(current: Record<string, unknown>, candidate: Record<string, unknown>): boolean {
+  return !sameOwnership(current.ownership, candidate.ownership)
+    || current.schemaVersion !== candidate.schemaVersion
 }
 
 function threeWayRow(
@@ -807,6 +875,9 @@ class Registry {
 
   private index(entry: RegisteredSession): void {
     this.agents.set(entry.agentId, entry)
+    // Quarantined (agentOwnership.ts): an external row is addressable by agentId only. Its pane id is a
+    // route on a tmux server this namespace cannot name, so it must never own, block or resolve one.
+    if (isExternallyOwned(entry)) return
     if (entry.sessionId) this.sessionIndex.set(entry.sessionId, entry.agentId)
     for (const runtime of entry.runtimes) this.runtimeIndex.set(terminalRouteKey(runtime), entry.agentId)
     if (entry.processIdentity) this.processIndex.set(processIdentityKey(entry.engine, entry.processIdentity), entry.agentId)
@@ -884,8 +955,7 @@ class Registry {
         console.error('[registry] registry contains a malformed legacy row; refusing to overwrite it')
         return
       }
-      const v2Rows = parsed.filter((row) => !!row && typeof row === 'object'
-        && (row as { schemaVersion?: unknown }).schemaVersion === 2)
+      const v2Rows = parsed.filter(currentSchemaRow)
       if (v2Rows.length && !validatedRows(v2Rows)) {
         this.writeBlocked = true
         console.error('[registry] registry contains a malformed v2 row; refusing to overwrite it')
@@ -897,7 +967,7 @@ class Registry {
         if (id) this.persistedBaseline.set(id, rowFingerprint(row))
       }
       // The rollback copy is the file as found, retired runtimes and all — not the cleaned rows.
-      if (arr.some((row) => row.schemaVersion !== 2)) {
+      if (arr.some((row) => !currentSchemaRow(row))) {
         atomicWriteJson(PRE_V2_BACKUP_FILE, stored, true)
       }
       let changed = strippedRetired
@@ -1016,10 +1086,13 @@ class Registry {
           // Rehydrated explicitly for the reason the ⚠️ above gives. A reboot keeps it: it is when a
           // person last looked, which no reboot changes.
           ...(normalizedOpenedAt(raw.lastOpenedAt) !== undefined ? { lastOpenedAt: normalizedOpenedAt(raw.lastOpenedAt) } : {}),
+          // Rehydrated explicitly for the reason the ⚠️ above gives. Already validated against this row
+          // by `validatedRows`; the final `validatedRows` below re-checks it against the rebuilt row.
+          ...(raw.ownership !== undefined ? { ownership: copyOwnership(raw.ownership) } : {}),
         }
         if (
           raw.engine !== engine
-          || raw.schemaVersion !== 2
+          || (raw.schemaVersion as number | undefined) !== persistedSchemaVersion(s)
           || typeof raw.active !== 'boolean'
           || JSON.stringify(raw.launch) !== JSON.stringify(s.launch)
           || raw.tmuxPane !== pane
@@ -1302,7 +1375,7 @@ class Registry {
   /** A stopped agent gets a new terminal route while keeping its saved conversation and identity.
    * Archived routes/processes are evidence only: none of them may be indexed or signalled here. */
   resumePendingAgent(saved: RegisteredSession, runtimes: TerminalRuntimeRef[]): RegisteredSession | null {
-    if (this.writeBlocked || this.agents.has(saved.agentId)
+    if (this.writeBlocked || isExternallyOwned(saved) || this.agents.has(saved.agentId)
       || (saved.sessionId && this.bySession(saved.sessionId))) return null
     const routes = normalizedRuntimes(runtimes)
     if (!routes.length || routes.some(route => this.runtimeIndex.has(terminalRouteKey(route)))) return null
@@ -1394,7 +1467,7 @@ class Registry {
         .filter((agent): agent is RegisteredSession => !!agent)
         .map((agent) => this.adoptEngine(agent.agentId, engine, validProcessIdentity(input.processIdentity) ? input.processIdentity : null))
         .find((agent): agent is RegisteredSession => !!agent))
-    const agentId = processAgent?.agentId ?? ''
+    const agentId = isExternallyOwned(processAgent) ? '' : processAgent?.agentId ?? ''
     if (
       !sessionId
       || !agentId
@@ -1638,10 +1711,11 @@ class Registry {
    * which is what lets the hook that follows (`register`, `byProcess(engine, …)`) land on this row
    * rather than mint another. `terminalHost` stays set so the exit is recognised (`releaseEngine`).
    * Refused for anything but a terminal: an agent already running one engine is never re-labelled.
+   * Refused for a borrowed (external) terminal: an engine typed into it stays the pane owner's.
    */
   adoptEngine(agentId: string, engine: AgentEngine, processIdentity?: ProcessIdentity | null): RegisteredSession | null {
     const entry = this.agents.get(agentId)
-    if (!entry || !isTerminalEngine(entry.engine) || isTerminalEngine(engine)) return null
+    if (!entry || isExternallyOwned(entry) || !isTerminalEngine(entry.engine) || isTerminalEngine(engine)) return null
     this.drop(entry)
     entry.engine = engine
     entry.terminalHost = true
@@ -1676,7 +1750,7 @@ class Registry {
    */
   releaseEngine(agentId: string, separateShell = false): RegisteredSession | null {
     const original = this.agents.get(agentId)
-    if (!original || (isTerminalEngine(original.engine) && !separateShell)) return null
+    if (!original || isExternallyOwned(original) || (isTerminalEngine(original.engine) && !separateShell)) return null
     this.drop(original)
     this.terminalAvailableAgents.delete(agentId)
     // The archived conversation owns the original Harness ID. Preserve the physical shell under
@@ -1705,7 +1779,8 @@ class Registry {
   updateRuntimes(agentId: string, runtimes: readonly TerminalRuntimeRef[], primaryRuntimeKey?: string): boolean {
     const entry = this.agents.get(agentId)
     const normalized = normalizedRuntimes(runtimes)
-    if (!entry || !normalized.length) return false
+    // A borrowed pane's route IS its enrollment. It holds no managed route, so it blocks no move either.
+    if (!entry || !normalized.length || isExternallyOwned(entry)) return false
     this.drop(entry)
     entry.runtimes = normalized
     entry.tmuxPane = tmuxProjection(normalized)
@@ -1758,6 +1833,8 @@ class Registry {
   /** Mark whether at least one backend placement was verified by this daemon process. */
   setTerminalAvailable(agentId: string, available: boolean): boolean {
     if (!this.agents.has(agentId)) return false
+    // Never advertised (agentOwnership.ts): nothing can open it until endpoint-aware routing exists.
+    if (available && isExternallyOwned(this.agents.get(agentId))) return false
     if (available) this.terminalAvailableAgents.add(agentId)
     else this.terminalAvailableAgents.delete(agentId)
     return true
@@ -1784,7 +1861,8 @@ class Registry {
     grid?: GridAssignment | null,
   ): boolean {
     const session = this.resolve(sessionId)
-    if (!session || !validProcessIdentity(processIdentity)) return false
+    // An external row carries no process identity: the pane's processes are its owner's, not an agent's.
+    if (!session || !validProcessIdentity(processIdentity) || isExternallyOwned(session)) return false
     this.drop(session)
     session.processIdentity = processIdentity
     // A record written before gateways existed, or by a pass whose probe failed, learns it here — the
@@ -2035,11 +2113,15 @@ class Registry {
             throw new Error('registry contains an unknown row schema')
           }
           const legacyRows = parsed.filter((row) => !row || typeof row !== 'object' || !Object.hasOwn(row, 'schemaVersion'))
+          const v2Rows = parsed.filter(currentSchemaRow)
+          // Another writer put an ownership claim on disk that does not hold up — see the block below.
+          if (legacyRows.some(claimsOwnership) || (v2Rows.length && !validatedRows(v2Rows) && claimConflict(v2Rows))) {
+            this.writeBlocked = true
+            throw new Error('registry on disk carries an external terminal claim that does not hold up; writes are blocked until registry.json is repaired')
+          }
           if (legacyRows.some((row) => !validLegacyRegistryRow(row))) {
             throw new Error('registry contains a malformed legacy row')
           }
-          const v2Rows = parsed.filter((row) => !!row && typeof row === 'object'
-            && (row as { schemaVersion?: unknown }).schemaVersion === 2)
           if (v2Rows.length && !validatedRows(v2Rows)) throw new Error('registry contains a malformed v2 row')
           return parsed
         })()
@@ -2059,6 +2141,12 @@ class Registry {
           let candidate = latest.has(agentId)
             ? threeWayRow(baseline, current, latest.get(agentId)!)
             : current
+          // A merge may never add, drop or change an ownership claim behind this daemon's back — a
+          // borrowed pane silently read as managed is exactly what the claim exists to prevent.
+          if ((claimsOwnership(current) || claimsOwnership(candidate)) && ownershipDrifted(current, candidate)) {
+            this.writeBlocked = true
+            throw new Error(`registry row ${agentId} changed ownership on disk; writes are blocked until registry.json is repaired`)
+          }
           const process = strictPersistedRow(candidate)?.processIdentity
           const engine = candidate.engine
           const sessionId = typeof candidate.sessionId === 'string' ? candidate.sessionId : ''
@@ -2067,6 +2155,10 @@ class Registry {
             if (otherId === agentId) continue
             const otherRow = strictPersistedRow(other)
             if (!otherRow) continue
+            // An external row holds no route, session or process (agentOwnership.ts), so a pane id it
+            // shares with a managed row is not a collision; and a borrowed pane is never resolved by
+            // deleting a row. Any real conflict is left for `validatedRows` below, which blocks writes.
+            if (isExternallyOwned(otherRow) || claimsOwnership(candidate)) continue
             const sameProcess = !!process && !!otherRow.processIdentity && otherRow.engine === engine
               && process.pid === otherRow.processIdentity.pid
               && process.startMarker === otherRow.processIdentity.startMarker
@@ -2090,8 +2182,18 @@ class Registry {
           merged.set(agentId, candidate)
         }
 
-        const rows = validatedRows([...merged.values()])
-        if (!rows) throw new Error('registry transaction would violate global identity invariants')
+        const values = [...merged.values()]
+        const rows = validatedRows(values)
+        if (!rows) {
+          // Fail closed ONCE, deterministically: a conflict an external claim causes (a malformed claim,
+          // two claims on one endpoint) is not something a retry can resolve, and no row may be
+          // deleted to resolve it. Block writes rather than fail every save after this one.
+          if (claimConflict(values)) {
+            this.writeBlocked = true
+            throw new Error('registry transaction conflicts with an external terminal claim; writes are blocked until registry.json is repaired')
+          }
+          throw new Error('registry transaction would violate global identity invariants')
+        }
         const serialized = rows.map(persistedRow)
         atomicWriteJson(FILE, serialized)
 

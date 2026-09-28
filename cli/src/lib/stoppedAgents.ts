@@ -6,6 +6,7 @@ import { env } from '../config/env.js'
 import { isTerminalEngine } from '../engines/types.js'
 import { atomicWriteJson, projectDisplayName, strictPersistedRow, type RegisteredSession } from './registry.js'
 import { readPrivateStateFile, secureStateDirectory } from './secureState.js'
+import { ExternalPaneError, isExternallyOwned } from './agentOwnership.js'
 
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,128}$/
 export class StoppedAgentStore {
@@ -45,6 +46,9 @@ export class StoppedAgentStore {
 
   save(session: RegisteredSession): void {
     if (!SAFE_ID.test(session.agentId)) throw new Error('Invalid stopped harness identity.')
+    // A borrowed pane has no conversation of Harness's to keep, and an archive is what a resume
+    // relaunches from. Every caller refuses first; this is the backstop.
+    if (isExternallyOwned(session)) throw new ExternalPaneError()
     // An exited engine leaves its pane as a shell. Stopping that shell must keep
     // the conversation saved before releaseEngine cleared its binding/profile.
     const previous = this.get(session.agentId)

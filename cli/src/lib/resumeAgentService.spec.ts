@@ -333,3 +333,35 @@ describe('existing runtime and readiness verification', () => {
     expect(create).not.toHaveBeenCalled(); expect(deps.stoppedAgents.get(saved.agentId)).not.toBeNull()
   })
 })
+
+describe('external panes', () => {
+  const ownership = (paneId: string) => ({ kind: 'external' as const, backend: 'tmux' as const, socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId })
+
+  it('refuses a live external terminal before allocating a lifecycle job or touching tmux', async () => {
+    const borrowed = registry.openPendingAgent({ engine: 'terminal', runtimes: [{ backend: 'tmux', paneId: '%77' }], cwd: dir })!
+    Object.assign(borrowed, { ownership: ownership('%77') })
+    const run = vi.spyOn(deps.restartJobs, 'run')
+    const result = await createResumeAgentService(deps)(borrowed.agentId)
+    expect(result).toMatchObject({ ok: false, error: 'EXTERNAL_PANE' })
+    expect(run).not.toHaveBeenCalled()
+    expect(listTmuxPanes).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(kill).not.toHaveBeenCalled()
+    expect(deps.retainExitedSession).not.toHaveBeenCalled()
+    expect(registry.byAgent(borrowed.agentId)).toBe(borrowed)
+  })
+
+  it('never relaunches an archive that claims an external pane', async () => {
+    // Written by hand: the store itself refuses to archive an external row. v3 is how one is persisted.
+    saved = { ...saved, engine: 'terminal', terminalHost: true, sessionId: '', transcriptPath: null, processIdentity: null, ownership: ownership(saved.tmuxPane) }
+    writeFileSync(join(dir, 'saved', `${saved.agentId}.json`), JSON.stringify({ version: 1, session: { ...saved, schemaVersion: 3 } }), { mode: 0o600 })
+    expect(deps.stoppedAgents.get(saved.agentId)?.ownership).toEqual(ownership(saved.tmuxPane))
+    expect(() => deps.stoppedAgents.save(saved)).toThrow(/did not create/)
+    const run = vi.spyOn(deps.restartJobs, 'run')
+    expect(await start()).toMatchObject({ ok: false, error: 'EXTERNAL_PANE' })
+    expect(run).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(deps.stoppedAgents.beginResume(saved.agentId)).not.toBeNull()
+    expect(registry.byAgent(saved.agentId)).toBeUndefined()
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AgentRestartCoordinator, bypassPermissionFor, restartAgent, type RestartAgentDeps } from './restartAgent.js'
+import { AgentRestartCoordinator, bypassPermissionFor, managedOnlySwapDeps, restartAgent, type RestartAgentDeps } from './restartAgent.js'
 import type { ProcessIdentity } from './registry.js'
 
 const IDENTITY: ProcessIdentity = { pid: 555, executable: 'claude', startMarker: 'Mon Aug  3 09:05:00 2026' }
@@ -156,6 +156,40 @@ describe('restartAgent', () => {
   })
 })
 
+
+describe('managedOnlySwapDeps', () => {
+  it('an external row is never held, signalled, prepared or respawned over', async () => {
+    const d = deps({ prepareResume: vi.fn() })
+    const outcome = await restartAgent({ engine: 'codex', sessionId: 's1' }, false, managedOnlySwapDeps(d, () => false))
+    expect(outcome.ok).toBe(false)
+    expect(d.calls).toEqual([])
+  })
+
+  it('refuses each side effect on its own, whatever order a caller uses them in', async () => {
+    const d = deps({ prepareResume: vi.fn() })
+    const guarded = managedOnlySwapDeps(d, () => false)
+    expect((await guarded.holdOpen()).ok).toBe(false)
+    expect(await guarded.terminate()).toBe('not-ours')
+    expect((await guarded.respawn(['claude'])).ok).toBe(false)
+    expect(() => guarded.prepareResume!()).toThrow(/not Harness's own/)
+    expect(d.calls).toEqual([])
+  })
+
+  it('refuses at the kill when the row turns external after the pane was held', async () => {
+    let managed = true
+    const d = deps({ holdOpen: async () => { managed = false; return { ok: true } } })
+    const outcome = await restartAgent({ engine: 'claude', sessionId: 's1' }, false, managedOnlySwapDeps(d, () => managed))
+    expect(outcome.ok).toBe(false)
+    expect(d.calls).toEqual(['holdOpen'])
+  })
+
+  it('a managed row runs the whole swap unchanged', async () => {
+    const d = deps()
+    const outcome = await restartAgent({ engine: 'claude', sessionId: 's1' }, false, managedOnlySwapDeps(d, () => true))
+    expect(outcome.ok).toBe(true)
+    expect(d.calls).toEqual(['holdOpen', 'terminate', 'buildArgv', 'respawn', 'waitForProcess'])
+  })
+})
 
 describe('restart cancellation', () => {
   for (const phase of ['before', 'hold', 'terminate', 'prepare', 'respawn', 'wait'] as const) {

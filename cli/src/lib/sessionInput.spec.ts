@@ -812,3 +812,122 @@ describe('optional lamp delivery preserves legacy behavior', () => {
     controller.forget('s1')
   })
 })
+
+// ---------------------------------------------------------------------------
+// External pane gates
+// ---------------------------------------------------------------------------
+
+describe('SessionInputController — external pane gates', () => {
+  afterEach(() => vi.useRealTimers())
+
+  function externalSession(): RegisteredSession {
+    return {
+      ...session(),
+      engine: 'terminal' as any,
+      sessionId: '',
+      processIdentity: null,
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId: '%7' },
+      runtimes: [{ backend: 'tmux', paneId: '%7' }],
+      tmuxPane: '%7',
+    } as any
+  }
+
+  it('submit rejects with external_pane delivery, fires onError once, and never injects or queues', async () => {
+    const inject = vi.fn(async () => true)
+    const sendKey = vi.fn(async () => true)
+    const validateRuntime = vi.fn(async () => true)
+    const capture = vi.fn(async () => null)
+    const onError = vi.fn()
+    const onDelivery = vi.fn()
+    const controller = new SessionInputController({
+      getSession: () => externalSession(),
+      validateRuntime, inject, sendKey, capture, onError, onDelivery,
+    })
+    controller.submit('s1', 'hello world', 'delivery-ext')
+    // Delivery is synchronous for external
+    expect(onDelivery).toHaveBeenCalledOnce()
+    expect(onDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      deliveryId: 'delivery-ext', state: 'rejected', reason: 'external_pane',
+    }))
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError).toHaveBeenCalledWith('s1', expect.stringContaining('tmux session Harness did not create'))
+    expect(inject).not.toHaveBeenCalled()
+    expect(sendKey).not.toHaveBeenCalled()
+    expect(validateRuntime).not.toHaveBeenCalled()
+    expect(capture).not.toHaveBeenCalled()
+    controller.forget('s1')
+  })
+
+  it('submit with a team: deliveryId rejects but does not fire onError', async () => {
+    const onError = vi.fn()
+    const onDelivery = vi.fn()
+    const controller = new SessionInputController({
+      getSession: () => externalSession(),
+      validateRuntime: async () => true, inject: async () => true,
+      sendKey: async () => true, onError, onDelivery,
+    })
+    controller.submit('s1', 'team message', 'team:fixture')
+    expect(onDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      deliveryId: 'team:fixture', state: 'rejected', reason: 'external_pane',
+    }))
+    expect(onError).not.toHaveBeenCalled()
+    controller.forget('s1')
+  })
+
+  it('cancel fires onError with the external detail and never validates or sends keys', async () => {
+    const onError = vi.fn()
+    const validateRuntime = vi.fn(async () => true)
+    const sendKey = vi.fn(async () => true)
+    const controller = new SessionInputController({
+      getSession: () => externalSession(),
+      validateRuntime, inject: async () => true, sendKey, onError,
+    })
+    controller.cancel('s1')
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError).toHaveBeenCalledWith('s1', expect.stringContaining('tmux session Harness did not create'))
+    expect(validateRuntime).not.toHaveBeenCalled()
+    expect(sendKey).not.toHaveBeenCalled()
+    controller.forget('s1')
+  })
+
+  it('cancelConfirmed resolves false with no side effects', async () => {
+    const validateRuntime = vi.fn(async () => true)
+    const sendKey = vi.fn(async () => true)
+    const controller = new SessionInputController({
+      getSession: () => externalSession(),
+      validateRuntime, inject: async () => true, sendKey, onError: vi.fn(),
+    })
+    const result = await controller.cancelConfirmed('s1')
+    expect(result).toBe(false)
+    expect(sendKey).not.toHaveBeenCalled()
+    // validateRuntime is short-circuited by the external check before the await
+    expect(validateRuntime).not.toHaveBeenCalled()
+    controller.forget('s1')
+  })
+
+  it('acquireControl returns null for an external session', () => {
+    const controller = new SessionInputController({
+      getSession: () => externalSession(),
+      validateRuntime: async () => true, inject: async () => true,
+      sendKey: async () => true, onError: vi.fn(),
+    })
+    expect(controller.acquireControl('s1')).toBeNull()
+    controller.forget('s1')
+  })
+
+  it('a managed session still submits normally (sanity)', async () => {
+    vi.useFakeTimers()
+    const inject = vi.fn(async () => true)
+    const onDelivery = vi.fn()
+    const controller = new SessionInputController({
+      getSession: () => session(),
+      validateRuntime: async () => true, inject, sendKey: async () => true,
+      onError: vi.fn(), onDelivery,
+    })
+    controller.submit('s1', 'managed prompt', 'delivery-managed')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(inject).toHaveBeenCalled()
+    expect(onDelivery).toHaveBeenCalledWith(expect.objectContaining({ deliveryId: 'delivery-managed', state: 'queued' }))
+    controller.forget('s1')
+  })
+})

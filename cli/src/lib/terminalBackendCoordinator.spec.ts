@@ -183,3 +183,168 @@ describe('TerminalBackendCoordinator', () => {
     await expect(coordinator.validateLease(acquired.value, current)).resolves.toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// External ownership quarantine
+// ---------------------------------------------------------------------------
+
+const externalRuntime: TerminalRuntimeRef = { backend: 'tmux', paneId: '%5' }
+
+function externalSession(): RegisteredSession {
+  return {
+    schemaVersion: 3, active: true, agentId: 'ext-1', sessionId: '', boundAt: 1, engine: 'terminal',
+    terminalHost: true, projectDir: 'work', cwd: '/work',
+    runtimes: [externalRuntime], primaryRuntimeKey: terminalRouteKey(externalRuntime), tmuxPane: '%5',
+    source: null, title: null, model: null, cliVersion: null,
+    processIdentity: null,
+    registeredAt: 1, touchedAt: 1, lastHookAt: 1, lastTranscriptAt: 1,
+    ownership: {
+      kind: 'external', backend: 'tmux',
+      socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId: '%5',
+    },
+  } as unknown as RegisteredSession
+}
+
+/** A MANAGED session on the same pane id %5 — must still work normally. */
+function managedSessionOnSamePane(): RegisteredSession {
+  return {
+    schemaVersion: 2, active: true, agentId: 'managed-5', sessionId: 's5', boundAt: 1, engine: 'claude',
+    projectDir: 'work', cwd: '/work',
+    runtimes: [externalRuntime], primaryRuntimeKey: terminalRouteKey(externalRuntime), tmuxPane: '%5',
+    source: null, title: null, model: null, cliVersion: null,
+    processIdentity: { pid: 99, executable: 'claude', startMarker: 'Sat Aug 15 10:00:00 2026' },
+    registeredAt: 1, touchedAt: 1, lastHookAt: 1, lastTranscriptAt: 1,
+  } as unknown as RegisteredSession
+}
+
+describe('TerminalBackendCoordinator — external ownership quarantine', () => {
+  it('returns not_started for submitText on an external session without calling the backend', async () => {
+    const submit = vi.fn()
+    const coordinator = new TerminalBackendCoordinator([backend('tmux:default', submit)], ['tmux'])
+    const result = await coordinator.submitText(externalSession(), 'hello')
+    expect(result).toMatchObject({ state: 'failed', dispatch: 'not_started' })
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('returns not_started for typeLiteral on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.typeLiteral(externalSession(), 'hello')
+    expect(result).toMatchObject({ state: 'failed', dispatch: 'not_started' })
+    expect(tmuxBackend.typeLiteral).not.toHaveBeenCalled()
+  })
+
+  it('returns not_started for sendKey on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.sendKey(externalSession(), 'enter')
+    expect(result).toMatchObject({ state: 'failed', dispatch: 'not_started' })
+    expect(tmuxBackend.sendKey).not.toHaveBeenCalled()
+  })
+
+  it('returns not_started for setTitle on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.setTitle(externalSession(), 'new title')
+    expect(result).toMatchObject({ state: 'failed', dispatch: 'not_started' })
+    expect(tmuxBackend.setTitle).not.toHaveBeenCalled()
+  })
+
+  it('returns not_started for notify on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.notify(externalSession(), 'title', 'body')
+    expect(result).toMatchObject({ state: 'failed', dispatch: 'not_started' })
+    expect(tmuxBackend.notify).not.toHaveBeenCalled()
+  })
+
+  it('returns failed for capture on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.capture = vi.fn()
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.capture(externalSession())
+    expect(result.state).toBe('failed')
+    expect(tmuxBackend.capture).not.toHaveBeenCalled()
+  })
+
+  it('returns failed for acquireLease on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.validate = vi.fn()
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.acquireLease(externalSession())
+    expect(result.state).toBe('failed')
+    expect(tmuxBackend.validate).not.toHaveBeenCalled()
+  })
+
+  it('returns failed for openStream on an external session and never calls backend.openStream', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.openStream = vi.fn()
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const sink = { onData: vi.fn(), onClose: vi.fn() }
+    const result = await coordinator.openStream(externalSession(), { cols: 80, rows: 24 }, sink)
+    expect(result.state).toBe('failed')
+    expect(tmuxBackend.openStream).not.toHaveBeenCalled()
+  })
+
+  it('returns undefined for titleFor on an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.titles = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      value: new Map([[terminalRouteKey(externalRuntime), 'some title']]),
+    }))
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const titles = await coordinator.titles()
+    expect(coordinator.titleFor(externalSession(), titles)).toBeUndefined()
+  })
+
+  it('returns unknown (never gone) for validate on an external session without calling backend.validate', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const result = await coordinator.validate(externalSession())
+    expect(result).toEqual({ state: 'unknown', reason: 'external terminal is not routable' })
+    expect(tmuxBackend.validate).not.toHaveBeenCalled()
+  })
+
+  it('leaseIsCurrent returns false for an external session', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.validate = vi.fn(async () => ({ state: 'alive' as const }))
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    // Acquire a lease on a managed session, then check it against an external one
+    const managed = managedSessionOnSamePane()
+    const acquired = await coordinator.acquireLease(managed)
+    expect(acquired.state).toBe('succeeded')
+    if (acquired.state !== 'succeeded') return
+    expect(coordinator.leaseIsCurrent(acquired.value, externalSession())).toBe(false)
+  })
+
+  it('still allows operations on a MANAGED session using the same pane id', async () => {
+    const tmuxBackend = backend('tmux:default', vi.fn())
+    tmuxBackend.validate = vi.fn(async () => ({ state: 'alive' as const }))
+    tmuxBackend.setTitle = vi.fn(async () => ({ state: 'succeeded' as const, dispatch: 'executed' as const }))
+    tmuxBackend.submitText = vi.fn(async () => ({ state: 'succeeded' as const, dispatch: 'executed' as const }))
+    const handle = streamHandle()
+    tmuxBackend.openStream = vi.fn(async () => ({ state: 'succeeded' as const, value: handle }))
+    const coordinator = new TerminalBackendCoordinator([tmuxBackend], ['tmux'])
+    const managed = managedSessionOnSamePane()
+
+    // setTitle reaches the backend
+    const titleResult = await coordinator.setTitle(managed, 'new title')
+    expect(titleResult).toMatchObject({ state: 'succeeded' })
+    expect(tmuxBackend.setTitle).toHaveBeenCalled()
+
+    // submitText reaches the backend
+    const submitResult = await coordinator.submitText(managed, 'hello')
+    expect(submitResult).toMatchObject({ state: 'succeeded' })
+    expect(tmuxBackend.submitText).toHaveBeenCalled()
+
+    // acquireLease succeeds
+    const lease = await coordinator.acquireLease(managed)
+    expect(lease.state).toBe('succeeded')
+
+    // openStream reaches the backend
+    const sink = { onData: vi.fn(), onClose: vi.fn() }
+    const streamResult = await coordinator.openStream(managed, { cols: 80, rows: 24 }, sink)
+    expect(streamResult.state).toBe('succeeded')
+    expect(tmuxBackend.openStream).toHaveBeenCalled()
+  })
+})

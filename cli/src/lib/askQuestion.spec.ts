@@ -14,6 +14,7 @@ import {
   type ReviewView,
 } from './askQuestion.js'
 import type { RegisteredSession } from './registry.js'
+import { EXTERNAL_PANE, EXTERNAL_PANE_DETAIL } from './agentOwnership.js'
 
 // Real `tmux capture-pane` output from Claude Code 2.1.220 dialogs (the single-select one still carries
 // its SGR codes, exactly as captureTmuxPane returns it).
@@ -72,6 +73,26 @@ describe('question answers stay with one agent', () => {
     release('No dialog')
     await firstAnswer
     expect(controller.isDriving('s1')).toBe(false)
+  })
+
+  it('refuses an external pane before any capture, control lease or keystroke', async () => {
+    const external = {
+      agentId: 'x1', sessionId: '', engine: 'terminal', tmuxPane: '%5',
+      runtimes: [{ backend: 'tmux', paneId: '%5' }],
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/other', serverIdentity: 'pid:1@t', paneId: '%5' },
+    } as RegisteredSession
+    const calls: string[] = []
+    const controller = new AskQuestionController({
+      getSession: (id) => (id === 'x1' ? external : undefined),
+      capture: async () => { calls.push('capture'); return fixture('single') },
+      sendKey: async () => { calls.push('key'); return true },
+      sendText: async () => { calls.push('text'); return true },
+      acquireControl: () => { calls.push('control'); return () => {} },
+    })
+    expect(await controller.answer({ agentId: 'x1', answers: { q: 'Tea' } }))
+      .toEqual({ ok: false, error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL })
+    expect(calls).toEqual([])
+    expect(controller.isDriving('x1')).toBe(false)
   })
 })
 

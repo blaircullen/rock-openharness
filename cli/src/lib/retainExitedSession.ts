@@ -12,6 +12,7 @@
  * and the ending must reach the client before the frame that is behind a filesystem await.
  */
 import type { RegisteredSession } from './registry.js'
+import { isExternallyOwned } from './agentOwnership.js'
 
 export interface RetainExitedSessionDeps {
   stoppedAgents: {
@@ -37,6 +38,11 @@ export interface RetainExitedSessionDeps {
 export function createRetainExitedSession(deps: RetainExitedSessionDeps) {
   /** Retain the conversation's identity; a surviving shell gets its own live identity. */
   return (entry: RegisteredSession, paneAlive: boolean): void => {
+    // A borrowed pane is not Harness's to archive, re-identify or delete.
+    if (isExternallyOwned(entry)) {
+      deps.warn(`[retain] refused for external pane ${entry.tmuxPane}`, entry.agentId)
+      return
+    }
     deps.stoppedAgents.save(entry)
     const saved = deps.stoppedAgents.get(entry.agentId)!
     deps.invalidateTerminalControl(entry.agentId)

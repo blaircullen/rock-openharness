@@ -19,20 +19,42 @@ export function registryPath(env = process.env) {
   return env.HPS_REGISTRY || join(env.HARNESS_HOME || join(homedir(), '.harness'), 'cli', 'data', 'registry.json')
 }
 
+/**
+ * Whether Harness Monitor may treat a row as one of Harness's own panes. Only a legacy row (no
+ * schemaVersion) or a v2 row with no ownership claim — or exactly `{kind:'managed'}` — qualifies.
+ *
+ * A row the daemon marks as borrowed is written as `schemaVersion: 3` with an `ownership` block
+ * (cli/src/lib/agentOwnership.ts). Its `tmuxPane` names a pane on ANOTHER tmux server, so on this
+ * machine's default server the same id is a stranger's pane — or one of Harness's own. Looking it up,
+ * pausing it or typing a resume into it would act on the wrong pane. Fails closed: any other schema
+ * version, or any ownership value that is not exactly managed, is skipped too.
+ */
+export function isManagedRegistryRow(row) {
+  if (!row || typeof row !== 'object') return false
+  if (Object.hasOwn(row, 'schemaVersion') && row.schemaVersion !== 2) return false
+  if (!Object.hasOwn(row, 'ownership')) return true
+  const own = row.ownership
+  return !!own && typeof own === 'object' && !Array.isArray(own)
+    && own.kind === 'managed' && Object.keys(own).length === 1
+}
+
 /** `{ byId, rows }`, or an empty pair when there is no registry to read (a machine that has never run
- *  an agent, or a daemon whose data lives somewhere this user cannot see). */
+ *  an agent, or a daemon whose data lives somewhere this user cannot see). Borrowed rows are dropped
+ *  here, before anything can look up or act on their pane (`isManagedRegistryRow`). */
 export async function readRegistry(env = process.env) {
   let parsed
   try { parsed = JSON.parse(await readFile(registryPath(env), 'utf8')) }
   catch { return { byId: new Map(), rows: [] } }
-  const rows = (Array.isArray(parsed) ? parsed : []).filter((row) => row && typeof row.agentId === 'string')
+  const rows = (Array.isArray(parsed) ? parsed : [])
+    .filter((row) => row && typeof row.agentId === 'string' && isManagedRegistryRow(row))
   return { byId: new Map(rows.map((row) => [row.agentId, row])), rows }
 }
 
 /** The registry row in the shape `mergeRows` takes, for the no-daemon path. Deliberately lossy: no
  *  model, no branch, no verdict — the things only the daemon computes are absent rather than faked. */
 export function registryAsFrames(rows) {
-  return rows.map((row) => ({
+  // Filtered again: a caller that did not come through `readRegistry` must not get a borrowed pane id.
+  return rows.filter(isManagedRegistryRow).map((row) => ({
     id: row.agentId,
     sessionId: row.sessionId ?? null,
     name: row.title || row.projectDir || row.agentId.slice(0, 8),

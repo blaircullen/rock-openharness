@@ -340,6 +340,32 @@ describe('runtime pane parsing', () => {
 })
 
 describe('RuntimeProfileController', () => {
+  it('refuses an external pane before reading its profile, taking input or sending a key', async () => {
+    const value = {
+      ...session('claude'), sessionId: '', engine: 'terminal',
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/other', serverIdentity: 'pid:1@t', paneId: '%1' },
+    } as RegisteredSession
+    const manager = { getState: vi.fn(), selectedModel: vi.fn(), modelsForSession: vi.fn() }
+    const touched = vi.fn()
+    const controller = new RuntimeProfileController({
+      manager: manager as unknown as RuntimeProfileManager,
+      getSession: () => value,
+      validateRuntime: async () => { touched('validate'); return true },
+      capture: async () => { touched('capture'); return '' },
+      sendText: async () => { touched('text'); return true },
+      sendLiteral: async () => { touched('literal'); return true },
+      sendKey: async () => { touched('key'); return true },
+      acquireInput: () => { touched('input'); return () => {} },
+    })
+    const target = encodeRuntimeProfile({ sessionId: 'h1', engine: 'claude', model: 'opus', effort: 'high' })
+
+    await expect(controller.setProfile('h1', target)).rejects.toMatchObject({ code: 'EXTERNAL_PANE' })
+    expect(manager.getState).not.toHaveBeenCalled()
+    expect(manager.selectedModel).not.toHaveBeenCalled()
+    expect(manager.modelsForSession).not.toHaveBeenCalled()
+    expect(touched).not.toHaveBeenCalled()
+  })
+
   it('sets Claude model and effort only after transcript confirmations', async () => {
     const value = session('claude')
     const manager = new RuntimeProfileManager()

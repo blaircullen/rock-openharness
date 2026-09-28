@@ -63,6 +63,25 @@ describe('agentFrame', () => {
       .toMatchObject({ selectedModel: 'opus', terminal: { available: false, primary: 'tmux/%1' } })
   })
 
+  it('masks an external row’s pane and runtimes so no client can route to a bare pane id', async () => {
+    const external: RegisteredSession = {
+      ...session(null), engine: 'terminal', sessionId: '',
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/other.sock', serverIdentity: 'pid:9', paneId: '%1' },
+    }
+    const frame = await agentFrame(external, { selectedModel: null, terminalAvailable: true })
+    expect(frame).toMatchObject({ tmuxPane: null, terminal: { available: false, primary: '', runtimes: [] }, forkable: false })
+    expect(JSON.stringify(frame)).not.toContain('%1')
+    // A managed row sharing the id is untouched.
+    expect(await agentFrame(session(null), { selectedModel: null, terminalAvailable: true }))
+      .toMatchObject({ tmuxPane: '%1', terminal: { available: true, primary: 'tmux/%1', runtimes: [{ backend: 'tmux', paneId: '%1' }] } })
+  })
+
+  it('masks a malformed ownership claim the same way (fails closed)', async () => {
+    const malformed = { ...session(null), ownership: { kind: 'bogus' } } as unknown as RegisteredSession
+    expect(await agentFrame(malformed, { selectedModel: null, terminalAvailable: true }))
+      .toMatchObject({ tmuxPane: null, terminal: { available: false, primary: '', runtimes: [] } })
+  })
+
   it('carries the viewer pane’s name with the harness, and null for a plain engine', async () => {
     const withViewer = await agentFrame(session(null), {
       selectedModel: null, terminalAvailable: true,

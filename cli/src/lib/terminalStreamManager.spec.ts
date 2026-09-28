@@ -1091,4 +1091,114 @@ describe('TerminalStreamManager', () => {
     await vi.advanceTimersByTimeAsync(2)
     expect(binarySent.length).toBe(afterLeadingEdge + 1)
   })
+
+  // ---------------------------------------------------------------------------
+  // External ownership quarantine — TerminalStreamManager
+  // ---------------------------------------------------------------------------
+
+  describe('external ownership quarantine', () => {
+    function externalAgent(agentId = 'ext-1'): RegisteredSession {
+      return {
+        agentId, sessionId: '', engine: 'terminal', active: true,
+        registeredAt: Date.now(), touchedAt: Date.now(),
+        runtimes: [{ backend: 'tmux', paneId: '%5' }],
+        primaryRuntimeKey: 'tmux\u0000%5',
+        processIdentity: null,
+        ownership: {
+          kind: 'external', backend: 'tmux',
+          socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId: '%5',
+        },
+      } as unknown as RegisteredSession
+    }
+
+    it('sends TERMINAL_EXTERNAL_UNAVAILABLE for an external row and never calls terminals.openStream', async () => {
+      agents.set('ext-1', externalAgent())
+      const openStreamSpy = vi.fn()
+      terminals.openStream = openStreamSpy
+
+      await manager.handleFrame('web-1', 'terminal_open', {
+        requestId: 'open-ext', protocolVersion: 3, agentId: 'ext-1', cols: 100, rows: 30,
+      })
+
+      const error = sent.findLast((f) => f.type === 'terminal_error')
+      expect(error).toBeDefined()
+      expect(error!.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+      expect(error!.payload.requestId).toBe('open-ext')
+      expect(openStreamSpy).not.toHaveBeenCalled()
+      // No terminal_ready should have been sent
+      expect(sent.some((f) => f.type === 'terminal_ready')).toBe(false)
+    })
+
+    it('does not close or take over a managed stream on the same pane id when an external open arrives', async () => {
+      // Open a managed session on pane %5 first
+      const managedOnSamePane = {
+        ...session('claude', 'managed-5'),
+        runtimes: [{ backend: 'tmux', paneId: '%5' }],
+        primaryRuntimeKey: 'tmux\u0000%5',
+      } as unknown as RegisteredSession
+      agents.set('managed-5', managedOnSamePane)
+      agents.set('ext-1', externalAgent())
+
+      // The managed stream needs its own FakeStream
+      const managedStream = new FakeStream()
+      Object.defineProperty(managedStream, 'runtime', { value: { backend: 'tmux', paneId: '%5' } })
+      let managedSink: TerminalStreamSink | null = null
+      terminals.openStream = vi.fn(async (_session: RegisteredSession, _size: unknown, nextSink: TerminalStreamSink) => {
+        managedSink = nextSink
+        return { state: 'succeeded' as const, value: managedStream }
+      })
+
+      await manager.handleFrame('web-1', 'terminal_open', {
+        requestId: 'open-managed', protocolVersion: 3, agentId: 'managed-5', cols: 100, rows: 30,
+      })
+      const managedReady = sent.find((f) => f.type === 'terminal_ready' && f.payload.agentId === 'managed-5')
+      expect(managedReady).toBeDefined()
+      const managedStreamId = managedReady!.payload.streamId as string
+
+      // Now try opening the external row from a different connection
+      await manager.handleFrame('web-2', 'terminal_open', {
+        requestId: 'open-ext', protocolVersion: 3, agentId: 'ext-1', cols: 100, rows: 30,
+      })
+
+      // The external open must fail
+      expect(sent.findLast((f) => f.type === 'terminal_error')?.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+
+      // The managed stream must NOT be closed or taken over
+      expect(managedStream.closed).toBe(false)
+      expect(sent.filter((f) => f.type === 'terminal_closed')).toHaveLength(0)
+
+      // The managed stream must still accept input
+      await manager.handleBinary('web-1', {
+        kind: TerminalBinaryKind.input, streamId: managedStreamId, seq: 0, compressed: false,
+        bytes: Buffer.from('still works'),
+      })
+      expect(Buffer.from(managedStream.writes[0]).toString()).toBe('still works')
+    })
+
+    it('subsequent binary input and resize for a refused external open have no effect', async () => {
+      agents.set('ext-1', externalAgent())
+
+      await manager.handleFrame('web-1', 'terminal_open', {
+        requestId: 'open-ext', protocolVersion: 3, agentId: 'ext-1', cols: 100, rows: 30,
+      })
+      expect(sent.findLast((f) => f.type === 'terminal_error')?.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+
+      // No streamId was issued, so use a fabricated one — nothing should happen
+      const fakeStreamId = 'nonexistent-stream-id'
+      const sentBefore = sent.length
+      const binarySentBefore = binarySent.length
+
+      await manager.handleBinary('web-1', {
+        kind: TerminalBinaryKind.input, streamId: fakeStreamId, seq: 0, compressed: false,
+        bytes: Buffer.from('ignored'),
+      })
+      await manager.handleFrame('web-1', 'terminal_resize', {
+        streamId: fakeStreamId, resizeSeq: 0, cols: 140, rows: 50,
+      })
+
+      // No new frames sent (no error, no output, nothing)
+      expect(sent.length).toBe(sentBefore)
+      expect(binarySent.length).toBe(binarySentBefore)
+    })
+  })
 })

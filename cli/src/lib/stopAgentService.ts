@@ -8,6 +8,7 @@ import type { TerminalBackend } from './terminalBackend.js'
 import type { TmuxRuntimeRef } from './terminalTypes.js'
 import { terminalRouteKey } from './terminalRuntime.js'
 import { checkPidRuntime, terminateDeletedAgent } from './deleteAgentFallback.js'
+import { ExternalPaneError, isExternallyOwned } from './agentOwnership.js'
 
 export interface StopAgentServiceDeps {
   registry: Pick<typeof liveRegistry, 'resolve'>
@@ -41,6 +42,8 @@ export function createStopAgentService(deps: StopAgentServiceDeps) {
   const { registry, stoppedAgents, restartJobs, stopJobs, tmuxBackend, agentReconciler,
     forgetSession, markDeleted, clearDeleted } = deps
   return (target: string) => {
+    // A borrowed pane is refused before anything else: no job, no cancelled restart, no archive.
+    if (isExternallyOwned(registry.resolve(target))) return Promise.reject(new ExternalPaneError())
     const sessionId = registry.resolve(target)?.agentId ?? target
     const existing = stopJobs.get(sessionId)
     if (existing) return existing
@@ -48,6 +51,7 @@ export function createStopAgentService(deps: StopAgentServiceDeps) {
     const job = Promise.resolve().then(async () => {
       const live = registry.resolve(sessionId)
       if (!live) return
+      if (isExternallyOwned(live)) throw new ExternalPaneError()
       const identity = runtimeIdentity(live)
       const conversation = live.sessionId
       const sameTarget = () => {

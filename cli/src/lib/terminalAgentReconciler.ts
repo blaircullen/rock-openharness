@@ -9,6 +9,7 @@ import {
 import type { TerminalBackend } from './terminalBackend.js'
 import { mergeTerminalRuntimes, processIdentityKey, terminalInstanceId, terminalPlacementKey, terminalRouteKey } from './terminalRuntime.js'
 import type { TerminalRuntimeRef } from './terminalTypes.js'
+import { isExternallyOwned } from './agentOwnership.js'
 
 const MISS_LIMIT = 2
 
@@ -112,6 +113,15 @@ export class TerminalAgentReconciler {
   constructor(private readonly deps: TerminalAgentReconcilerDeps) {}
 
   /**
+   * The rows this lifecycle owns. A borrowed (external) pane is outside it entirely: the managed
+   * inventory cannot see it, so a miss must not retire it, and an engine observed at a colliding
+   * route must not be matched to it.
+   */
+  private managed(): RegisteredSession[] {
+    return this.deps.current().filter((row) => !isExternallyOwned(row))
+  }
+
+  /**
    * Arm the interval FIRST, then run the opening pass.
    *
    * The other way round — await, then schedule — meant a first pass that threw left discovery
@@ -148,13 +158,13 @@ export class TerminalAgentReconciler {
   async adoptVerified(observed: DiscoveredTerminalAgent): Promise<RegisteredSession | undefined> {
     const apply = async (): Promise<RegisteredSession | undefined> => {
       const key = processIdentityKey(observed.engine, observed.processIdentity)
-      const before = this.deps.current()
+      const before = this.managed()
       const current = before.find((candidate) => currentProcessKey(candidate) === key)
         ?? unboundRouteOwner(before, observed)
       if (current) await this.deps.onTerminalAvailability?.(current, true)
       if (current) await this.deps.onObserved(observed, current)
       else await this.deps.onDiscovered(observed)
-      const after = this.deps.current()
+      const after = this.managed()
       return after.find((candidate) => currentProcessKey(candidate) === key)
         ?? unboundRouteOwner(after, observed)
     }
@@ -236,7 +246,7 @@ export class TerminalAgentReconciler {
     // Terminal placement liveness does not depend on finding an engine process. This is what keeps a
     // retained trust/setup/shell pane visible after restart, including when `ps` itself is unavailable.
     const markVerifiedPlacements = async (): Promise<void> => {
-      for (const current of this.deps.current()) {
+      for (const current of this.managed()) {
         if (current.runtimes.some((runtime) => livePlacements.has(terminalPlacementKey(runtime)))) {
           await this.deps.onTerminalAvailability?.(current, true)
         }
@@ -256,7 +266,7 @@ export class TerminalAgentReconciler {
     probe.agents = probe.agents.filter((agent) => !this.suppressed.has(processIdentityKey(agent.engine, agent.processIdentity)))
 
     const apply = async (): Promise<void> => {
-      const before = this.deps.current()
+      const before = this.managed()
       const observedByProcess = new Map(probe.agents.map((agent) => [
         processIdentityKey(agent.engine, agent.processIdentity),
         agent,

@@ -3,6 +3,7 @@ import { unlink } from 'node:fs/promises'
 import { deflateSync } from 'node:zlib'
 import { ENGINES } from '../engines/types.js'
 import type { RegisteredSession } from './registry.js'
+import { EXTERNAL_PANE_DETAIL, EXTERNAL_TERMINAL_UNAVAILABLE, isExternallyOwned } from './agentOwnership.js'
 import { writeImageToOsClipboard } from './osClipboard.js'
 import { writePasteDropFile, writePasteImageFile } from './pasteDropFiles.js'
 import type { TerminalBackendCoordinator } from './terminalBackendCoordinator.js'
@@ -410,6 +411,13 @@ export class TerminalStreamManager {
     const session = this.deps.resolveAgent(agentId)
     if (!session) {
       this.sendError(connId, 'TERMINAL_AGENT_NOT_FOUND', { requestId })
+      return
+    }
+    // Before the placement lock and any takeover: an external row's pane id is not a route this daemon
+    // can resolve (agentOwnership.ts), and its placement key would collide with — and close the stream
+    // of — a managed pane that reuses the id. No stream means no input, resize, paste or lease either.
+    if (isExternallyOwned(session)) {
+      this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { requestId, message: EXTERNAL_PANE_DETAIL })
       return
     }
     if (!TERMINAL_ENGINES.has(session.engine)) {

@@ -29,6 +29,7 @@ import type { GridWebSearchStatus } from './gridLaunch.js'
 import { gridAnnotation, type GridAnnotation } from './gridModels.js'
 import { projectDisplayName, sessionDisplayTitle, type RegisteredSession } from './registry.js'
 import { engineCanFork } from './forkAgent.js'
+import { isExternallyOwned } from './agentOwnership.js'
 import { resumeMode, type ResumeMode } from './resumeCapability.js'
 import type { DshVerdict } from '../dsh/verdict.js'
 
@@ -189,6 +190,11 @@ export async function agentFrame(
     return value
   })
   const [project, updatedAt, gitContext] = await Promise.all([home, lastActivityAt(s), context])
+  // A borrowed (external) row is quarantined (agentOwnership.ts): its pane id names a pane on a tmux
+  // server the frame cannot express, and a client that read it as a bare id would open, type into or
+  // fork the managed pane that happens to share it. The frame carries no ownership field, so the route
+  // is masked instead — the same "no terminal" shape a stopped agent reports.
+  const external = isExternallyOwned(s)
   return {
     id: s.agentId,
     sessionId: s.sessionId,
@@ -205,8 +211,10 @@ export async function agentFrame(
     tokenUsage: tokenUsage?.totalTokens != null
       ? { totalTokens: tokenUsage.totalTokens, updatedAt: tokenUsage.updatedAt } : null,
     outputStats: tokenUsage?.output ? { ...tokenUsage.output, updatedAt: tokenUsage.updatedAt } : null,
-    tmuxPane: s.tmuxPane || null,
-    terminal: { available: terminalAvailable, primary: s.primaryRuntimeKey, runtimes: s.runtimes },
+    tmuxPane: external ? null : s.tmuxPane || null,
+    terminal: external
+      ? { available: false, primary: '', runtimes: [] }
+      : { available: terminalAvailable, primary: s.primaryRuntimeKey, runtimes: s.runtimes },
     engine: s.engine,
     selectedModel,
     // Where this agent's inference actually goes, so a client can tell which agents a newly picked
@@ -231,7 +239,7 @@ export async function agentFrame(
     viewerName: dsh?.viewerName ?? null,
     verdict: dsh?.verdict ?? null,
     forkedFrom: s.forkedFrom ? { agentId: s.forkedFrom.agentId, name: s.forkedFrom.name } : null,
-    forkable: engineCanFork(s.engine),
+    forkable: !external && engineCanFork(s.engine),
     resumeMode: resumeMode(s.engine),
     permissionMode: s.permissionMode ?? null,
     bypassPermission: s.bypassPermission ?? null,

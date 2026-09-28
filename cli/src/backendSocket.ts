@@ -30,6 +30,7 @@ import { AuthSessionManager, AuthSessionError } from './lib/authSession.js'
 import { VERSION } from './version.js'
 import { registry, projectDisplayName, type RegisteredSession } from './lib/registry.js'
 import { AgentStopError } from './lib/stopAgentService.js'
+import { EXTERNAL_PANE, EXTERNAL_PANE_DETAIL, ExternalPaneError, isExternallyOwned } from './lib/agentOwnership.js'
 import { isHiddenBuiltin } from './dsh/builtins.js'
 import { ENGINES, PROCESS_ENGINES, isTerminalEngine, type AgentEngine, type ProcessEngine } from './engines/types.js'
 import { listDir } from './lib/fsBrowse.js'
@@ -2535,6 +2536,9 @@ export class BackendSocket {
           if (hasName && !name) { reply(type, requestId, { error: 'MISSING_NAME' }); return }
           let s = registry.resolve(projectId)
           if (!s) { reply(type, requestId, { error: 'AGENT_NOT_FOUND' }); return }
+          // Refused whole, before any field is applied: renaming titles the tmux pane and a profile change
+          // types into it, and an external pane has no route this daemon may touch (agentOwnership.ts).
+          if (isExternallyOwned(s)) { reply(type, requestId, { error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL }); return }
           if (hasProfile) {
             if (typeof payload.selectedModel !== 'string' || !this.onRuntimeProfileUpdate) {
               reply(type, requestId, { error: 'INVALID_RUNTIME_PROFILE' })
@@ -2906,7 +2910,8 @@ export class BackendSocket {
           if (!this.onDeleteAgent) { reply(type, requestId, { error: 'UNSUPPORTED' }); return }
           try { await this.onDeleteAgent(target) }
           catch (error) {
-            if (!(error instanceof AgentStopError)) throw error
+            // Both are refusals with a code the client shows; anything else is a real failure.
+            if (!(error instanceof AgentStopError) && !(error instanceof ExternalPaneError)) throw error
             reply(type, requestId, { error: error.code, detail: error.message })
             return
           }
@@ -2999,6 +3004,8 @@ export class BackendSocket {
           const id = payload.agentId
           const agent = typeof id === 'string' ? registry.resolve(id) : undefined
           if (!agent?.tmuxPane) { reply(type, requestId, { error: 'AGENT_NOT_FOUND' }); return }
+          // Its pane id names a pane on another tmux server; reading it here would describe a stranger's.
+          if (isExternallyOwned(agent)) { reply(type, requestId, { error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL }); return }
           void tmuxPaneInfo(agent.tmuxPane).then(info => reply(type, requestId, info ? { ...info } : { error: 'PANE_NOT_FOUND' }))
           return
         }
@@ -3139,6 +3146,11 @@ export class BackendSocket {
           // A device answered an AskUserQuestion. There's no control channel into an interactive CLI, so
           // cli.ts keys the answer straight into that session's tmux dialog.
           const p = payload as { requestId?: string; sessionId?: string; agentId?: string; answers?: Record<string, string> }
+          const asked = p.agentId || p.sessionId
+          if (asked && isExternallyOwned(registry.resolve(asked))) {
+            reply(type, requestId, { error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL })
+            return
+          }
           const answered = this.onQuestionAnswer?.(p)
           // Detached: driving a dialog takes seconds of keystrokes and repaints. The outcome goes back
           // under the QUESTION's requestId, so the client that answered can say why nothing happened —

@@ -83,3 +83,15 @@ describe('retainExitedSession', () => {
     await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
   })
 })
+
+describe('retainExitedSession — external panes', () => {
+  it('refuses an external pane without archiving, deleting, publishing or re-identifying it', () => {
+    const warn = vi.fn()
+    const h = harness({ warn })
+    h.retain(row({ engine: 'terminal', sessionId: '', ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId: '%7' } }), true)
+    expect(h.calls).toEqual([])
+    expect(h.frames).toEqual([])
+    expect(h.archive.size).toBe(0)
+    expect(warn).toHaveBeenCalledOnce()
+  })
+})

@@ -119,7 +119,7 @@ import { writeGridConfigDir } from './lib/gridConfigDir.js'
 import { tmuxSupportsSessionEnv, TMUX_SESSION_ENV_MIN } from './lib/tmuxVersion.js'
 import { clearDeleted, isRecentlyDeleted, markDeleted } from './lib/deletedSessions.js'
 import { terminateDeletedAgent, checkPidRuntime } from './lib/deleteAgentFallback.js'
-import { AgentRestartCoordinator, bypassPermissionFor, restartAgent, type RestartAgentDeps } from './lib/restartAgent.js'
+import { AgentRestartCoordinator, bypassPermissionFor, managedOnlySwapDeps, restartAgent, type RestartAgentDeps } from './lib/restartAgent.js'
 import { claudeContinuation, findLiveSession, findResumedTranscript } from './lib/sessionRepair.js'
 import { TmuxBackend } from './lib/tmuxBackend.js'
 import { DEFAULT_HOST_THEME, loadHostTheme, saveHostTheme, type HostTheme } from './lib/hostTheme.js'
@@ -140,6 +140,7 @@ import { sweepWorktrees } from './lib/worktreeSweep.js'
 import { nameBranchAfterSession } from './lib/branchNaming.js'
 import { forgetAgentProject } from './lib/agentProject.js'
 import { createStopAgentService } from './lib/stopAgentService.js'
+import { externalPaneRefused, isExternallyOwned, managedTmuxPaneEngines } from './lib/agentOwnership.js'
 import { createResumeAgentService } from './lib/resumeAgentService.js'
 import { buildLaunchOverrides, validateLaunchOverrides, type LaunchOverrides, type LaunchOverridesDeps, type LaunchOverridesResult, type LaunchSource } from './lib/launchOverrides.js'
 import { prepareCodexResume } from './engines/codex/portableHistory.js'
@@ -1564,9 +1565,9 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   if (tmuxBackend) {
     // Before the first inventory: sessions a pre-prefix build named `<engine>-<ts>` are renamed to
     // `harness-<engine>-<ts>` so discovery's whitelist sees the registry's own panes again.
-    const ownedPanes = new Map(registry.list().flatMap((session) => session.runtimes
-      .filter((runtime) => runtime.backend === 'tmux')
-      .map((runtime) => [runtime.paneId, session.engine] as const)))
+    // Managed rows only: an external row's pane id names a session Harness did not create, possibly on
+    // another server, and a rename is exactly the mutation it must never get.
+    const ownedPanes = managedTmuxPaneEngines(registry.list())
     for (const adopted of await adoptLegacyHarnessSessions(ownedPanes)) {
       console.log(`[terminal] renamed tmux session ${adopted.from} → ${adopted.to} (pane ${adopted.paneId}) · named by a build before the harness- prefix`)
     }
@@ -5415,6 +5416,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   // recap for a killed turn. The next real prompt reopens a fresh turn.
   const cancelAgent = (id: string, confirmed = false): Promise<boolean> => {
     const record = registry.resolve(id)
+    // No turn to close and no key to send: the input controller answers the refusal (agentOwnership.ts).
+    if (isExternallyOwned(record)) { input.cancel(record!.agentId); return Promise.resolve(false) }
     const sessionId = record?.sessionId ?? id
     const st = turnStates.get(sessionId)
     if (st) st.turnOpen = false
@@ -5866,6 +5869,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     if (!tmuxBackend) return { ok: false, error: 'TMUX_UNAVAILABLE' }
     const source = registry.byAgent(agentId)
     if (!source) return { ok: false, error: 'AGENT_NOT_FOUND' }
+    // Nothing of a borrowed pane is Harness's to carry into a new agent.
+    if (isExternallyOwned(source)) return externalPaneRefused
     const sourceName = projectDisplayName(source)
     if (!source.cwd) return { ok: false, error: 'CWD_NOT_FOUND', detail: `${sourceName} has no working folder on record.` }
     try {
@@ -5974,7 +5979,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   const restartJobs = new AgentRestartCoordinator()
   const sameRestartTarget = (session: RegisteredSession): boolean => {
     const current = registry.byAgent(session.agentId)
-    return !!current && current.registeredAt === session.registeredAt
+    // A row that is (or has become) external is never the same target: its pane is not Harness's.
+    return !!current && !isExternallyOwned(current) && current.registeredAt === session.registeredAt
       && current.tmuxPane === session.tmuxPane && current.engine === session.engine
   }
 
@@ -5985,7 +5991,9 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     /** The mode this swap may actually ask for — the row's own, unless the engine on disk has since
      *  stopped taking its flag and the caller dropped it (`dropPermissionFlagIfUnsupported`). */
     permissionMode: string | null = session.permissionMode ?? null,
-  ): RestartAgentDeps => ({
+    // Second gate behind each entry point's own refusal: every hold, kill, history rewrite and respawn
+    // re-reads the row and refuses a borrowed pane at the moment it would act (agentOwnership.ts).
+  ): RestartAgentDeps => managedOnlySwapDeps({
     prepareResume: () => prepareSessionResume(session),
     holdOpen: async () => {
       const result = await tmuxBackend!.holdOpen(runtime)
@@ -6044,7 +6052,7 @@ async function runForeground(session: AuthSession | null): Promise<void> {
       ...(launch.env?.HARNESS_DSH ? { harnessNode: true } : {}),
     }),
     log: (message) => console.log(message),
-  })
+  }, () => !isExternallyOwned(registry.byAgent(session.agentId)))
 
   /** The bypass-permission flag the LIVE process was launched with. The fallback behind
    *  `bypassPermissionFor` for a row that recorded neither a mode nor the flag (written before either
@@ -6073,6 +6081,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     if (!tmuxBackend) return { ok: false, error: 'TMUX_UNAVAILABLE' }
     const session = registry.resolve(agentId)
     if (!session) return { ok: false, error: 'AGENT_NOT_FOUND' }
+    // A retarget is a respawn; a borrowed pane is never respawned.
+    if (isExternallyOwned(session)) return externalPaneRefused
     const pane = session.runtimes.find((runtime): runtime is TmuxRuntimeRef => runtime.backend === 'tmux')
     // Only tmux panes can be respawned. Saying so is better than a generic failure the user cannot act on.
     if (!pane) return { ok: false, error: 'RETARGET_UNSUPPORTED_BACKEND', detail: `${session.engine} is not running in a tmux pane` }
@@ -6161,6 +6171,12 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     if (!built.ok) {
       release()
       return { ok: false, error: built.error, detail: built.detail }
+    }
+    // Re-read across the awaits above: nothing below (opencode rows, pane env, the swap) may run for a
+    // row that is not Harness's own by now (agentOwnership.ts).
+    if (isExternallyOwned(registry.byAgent(session.agentId))) {
+      release()
+      return externalPaneRefused
     }
 
     // ⚠️ THE AGENT MUST ADOPT THE NEW PROCESS, OR IT STOPS BEING THE SAME AGENT.
@@ -6295,10 +6311,14 @@ async function runForeground(session: AuthSession | null): Promise<void> {
    * live-synced field, not from the original launch argv (the user may have resumed/switched sessions
    * from inside the engine's own terminal since launch).
    */
-  backend.onRestartAgent = (agentId) => restartJobs.run(registry.resolve(agentId)?.agentId ?? agentId, async (operationCurrent) => {
+  backend.onRestartAgent = (agentId) => isExternallyOwned(registry.resolve(agentId))
+    // Refused before a lifecycle job exists: a borrowed pane is never respawned.
+    ? Promise.resolve(externalPaneRefused)
+    : restartJobs.run(registry.resolve(agentId)?.agentId ?? agentId, async (operationCurrent) => {
     if (stopJobs.has(agentId) || pinnedControls.has(agentId)) return { ok: false, error: 'AGENT_BUSY' }
     const session = registry.resolve(agentId)
     if (!session) return { ok: false, error: 'AGENT_NOT_FOUND' }
+    if (isExternallyOwned(session)) return externalPaneRefused
     if (!session.tmuxPane || !tmuxBackend) return { ok: false, error: 'RESTART_UNSUPPORTED_BACKEND' }
     const target = { ...session }
     const current = () => operationCurrent() && sameRestartTarget(target)

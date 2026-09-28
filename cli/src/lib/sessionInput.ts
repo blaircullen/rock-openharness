@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import type { RegisteredSession } from './registry.js'
+import { EXTERNAL_PANE_DETAIL, isExternallyOwned } from './agentOwnership.js'
 import { sid } from './log.js'
 import type { TerminalActionResult } from './terminalTypes.js'
 
@@ -193,6 +194,13 @@ export class SessionInputController {
       if (!deliveryId?.startsWith('team:')) this.deps.onError(sessionId, 'This agent is no longer available.')
       return
     }
+    // Refused before any queue or write: an external pane has no route this daemon may type into
+    // (agentOwnership.ts). The delivery is answered under its own id, so the sender is not left waiting.
+    if (isExternallyOwned(session)) {
+      this.delivery(sessionId, deliveryId, 'rejected', 'external_pane')
+      if (!deliveryId?.startsWith('team:')) this.deps.onError(sessionId, EXTERNAL_PANE_DETAIL)
+      return
+    }
     const state = this.state(sessionId)
     this.dropExpired(sessionId, state)
     if (state.controlLocked
@@ -221,7 +229,7 @@ export class SessionInputController {
    */
   acquireControl(sessionId: string, opts?: { forAnswer?: boolean }): (() => void) | null {
     const session = this.controlSession(sessionId)
-    if (!session) return null
+    if (!session || isExternallyOwned(session)) return null
     const state = this.state(sessionId)
     this.dropExpired(sessionId, state)
     const turnBlocks = state.turnOpen && !opts?.forAnswer
@@ -324,6 +332,7 @@ export class SessionInputController {
   cancel(sessionId: string): void {
     const session = this.controlSession(sessionId)
     if (!session) return
+    if (isExternallyOwned(session)) { this.deps.onError(sessionId, EXTERNAL_PANE_DETAIL); return }
     void this.deps.validateRuntime(session).then(async (valid) => {
       if (!valid) { this.deps.onError(sessionId, 'This agent process is no longer running.'); return }
       await this.deps.sendKey(session.agentId, 'C-c')
@@ -341,7 +350,7 @@ export class SessionInputController {
 
   async cancelConfirmed(sessionId: string): Promise<boolean> {
     const session = this.controlSession(sessionId)
-    if (!session || !await this.deps.validateRuntime(session)) return false
+    if (!session || isExternallyOwned(session) || !await this.deps.validateRuntime(session)) return false
     const result = await this.deps.sendKey(session.agentId, 'C-c')
     const state = this.state(sessionId)
     this.finishDelivery(sessionId, state, 'unknown', 'cancelled_after_paste')

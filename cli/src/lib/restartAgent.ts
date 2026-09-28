@@ -92,6 +92,30 @@ export interface RestartAgentDeps {
   log: (message: string) => void
 }
 
+/**
+ * The same deps, each side effect refused unless `stillManaged()` says the row is still Harness's own
+ * at the moment it would run (agentOwnership.ts). The entry points refuse an external row up front;
+ * this is the second gate, at the kill and the respawn themselves, so a caller that forgets the first
+ * — or a row whose ownership changed across an await — still never holds, signals, rewrites history
+ * for or respawns over a borrowed pane. A refused `terminate` reads as `not-ours`, which `restartAgent`
+ * already treats as "never respawn over this".
+ */
+export function managedOnlySwapDeps(deps: RestartAgentDeps, stillManaged: () => boolean): RestartAgentDeps {
+  const refused = 'the pane is not Harness\'s own (external terminal); nothing was signalled or respawned'
+  return {
+    ...deps,
+    holdOpen: () => stillManaged() ? deps.holdOpen() : Promise.resolve({ ok: false, reason: refused }),
+    terminate: (checkAfterMs) => stillManaged() ? deps.terminate(checkAfterMs) : Promise.resolve('not-ours'),
+    respawn: (argv) => stillManaged() ? deps.respawn(argv) : Promise.resolve({ ok: false, reason: refused }),
+    ...(deps.prepareResume ? {
+      prepareResume: () => {
+        if (!stillManaged()) throw new Error(refused)
+        return deps.prepareResume!()
+      },
+    } : {}),
+  }
+}
+
 /** Outcomes that mean the old process is confirmed gone — safe to respawn over the pane. `not-ours` and
  *  `failed` are NOT here on purpose: never respawn over a target the kill sequence could not confirm. */
 const KILL_CONFIRMED: ReadonlySet<TerminateOutcome> = new Set(['gone', 'terminated', 'killed'])

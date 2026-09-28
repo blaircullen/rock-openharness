@@ -1,4 +1,5 @@
 import type { RegisteredSession } from './registry.js'
+import { isExternallyOwned } from './agentOwnership.js'
 import { devinModelCommandResult } from '../engines/devin/runtimeProfile.js'
 import { countCommandcodeRefusals } from '../engines/commandcode/runtimeProfile.js'
 import { parseHermesPickerPage } from '../engines/hermes/runtimeProfile.js'
@@ -44,6 +45,7 @@ export type RuntimeProfileErrorCode =
   | 'PLAN_SCOPE_AMBIGUOUS'
   | 'CONFIRM_TIMEOUT'
   | 'TMUX_FAILED'
+  | 'EXTERNAL_PANE'
 
 export class RuntimeProfileControlError extends Error {
   constructor(readonly code: RuntimeProfileErrorCode) {
@@ -639,6 +641,9 @@ export class RuntimeProfileController {
   async setProfile(sessionId: string, encoded: unknown): Promise<void> {
     const registeredSession = this.deps.getSession(sessionId)
     if (!registeredSession) throw new RuntimeProfileControlError('AGENT_NOT_FOUND')
+    // Before any read or keystroke: a borrowed pane's profile is its owner's (agentOwnership.ts). The
+    // dial reaches this without passing `agent_update`, so the refusal lives here, not only there.
+    if (isExternallyOwned(registeredSession)) throw new RuntimeProfileControlError('EXTERNAL_PANE')
     const observed = this.deps.manager.getState(registeredSession.sessionId)
     const session: RegisteredSession = registeredSession.cliVersion || !observed.cliVersion
       ? registeredSession

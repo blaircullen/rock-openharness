@@ -489,3 +489,49 @@ describe('a terminal pane (engine `terminal`)', () => {
     expect(onRemoved).toHaveBeenCalledWith(current, 'terminal runtime absent after 2 confirmed scans')
   })
 })
+
+describe('external panes stay outside managed reconciliation', () => {
+  const borrowed = (paneId: string): RegisteredSession => ({
+    ...session([{ backend: 'tmux', paneId }]), agentId: 'borrowed', engine: 'terminal', terminalHost: true, processIdentity: null,
+    ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId },
+  })
+
+  it('a managed-inventory miss never retires an external pane, while a managed miss still does', async () => {
+    const external = borrowed('%5')
+    const managed = { ...session([{ backend: 'tmux', paneId: '%6' }]), agentId: 'managed', processIdentity: null }
+    const onRemoved = vi.fn()
+    const onDormant = vi.fn()
+    const onTerminalAvailability = vi.fn()
+    const reconciler = new TerminalAgentReconciler({
+      current: () => [external, managed], backends: [], backendOrder: ['tmux'],
+      onDiscovered: vi.fn(), onObserved: vi.fn(), onDormant, onRemoved, onTerminalAvailability,
+      probe: async () => probe([{ instanceId: 'tmux:default', result: { state: 'available', roots: [] } }]),
+    })
+    for (let pass = 0; pass < 3; pass++) await reconciler.trigger()
+    expect(onRemoved.mock.calls.map(([row]) => row.agentId)).toEqual(['managed'])
+    expect(onDormant).not.toHaveBeenCalled()
+    expect(onTerminalAvailability.mock.calls.some(([row]) => row.agentId === 'borrowed')).toBe(false)
+  })
+
+  it('an engine observed at a colliding pane id is never matched to the external row', async () => {
+    const external = borrowed('%1')
+    const onObserved = vi.fn()
+    const onDiscovered = vi.fn()
+    const onTerminalAvailability = vi.fn()
+    const reconciler = new TerminalAgentReconciler({
+      current: () => [external], backends: [], backendOrder: ['tmux'],
+      onDiscovered, onObserved, onDormant: vi.fn(), onRemoved: vi.fn(), onTerminalAvailability,
+      probe: async () => probe(
+        [{ instanceId: 'tmux:default', result: { state: 'available', roots: [{ runtime: tmux, rootPid: 1, cwd: '/work' }] } }],
+        [observed([tmux])],
+      ),
+    })
+    await reconciler.trigger()
+    expect(await reconciler.adoptVerified(observed([tmux]))).toBeUndefined()
+    expect(onObserved).not.toHaveBeenCalled()
+    expect(onTerminalAvailability).not.toHaveBeenCalled()
+    // Offered as an unowned process instead: the registry opens it as a new managed row, because the
+    // external row holds no pane-id route (agentOwnership.ts) — see agentOwnership.spec.ts 'quarantine'.
+    expect(onDiscovered).toHaveBeenCalled()
+  })
+})

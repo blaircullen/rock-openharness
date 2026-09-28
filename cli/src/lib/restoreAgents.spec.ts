@@ -515,3 +515,89 @@ it('archives an engine that exited while the daemon was down without overwriting
   expect(h.paneCreates).toBe(0)
   expect(h.respawns).toBe(0)
 })
+
+describe('restoreAgents — external panes', () => {
+  const borrowed = (paneId: string) => row({
+    agentId: 'borrowed', engine: 'terminal', terminalHost: true, sessionId: '', boundAt: null,
+    runtimes: [{ backend: 'tmux', paneId }], primaryRuntimeKey: `tmux\u0000${paneId}`, tmuxPane: paneId,
+    ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId },
+  })
+
+  it('never recreates, releases or re-identifies a missing external pane, and restores managed rows beside it', async () => {
+    const livePane = vi.fn(async () => false)
+    const h = harness([borrowed('%7'), row()])
+    h.deps.livePane = livePane
+    h.probes.set('%0', [identity(500)])
+
+    const summary = await restoreAgents(h.deps)
+
+    expect(summary.skipped).toEqual([{ agentId: 'borrowed', reason: 'external pane' }])
+    expect(summary.restored).toEqual(['agent-a'])
+    expect(h.calls.filter((call) => call.includes('borrowed'))).toEqual([])
+    expect(livePane).not.toHaveBeenCalledWith({ backend: 'tmux', paneId: '%7' })
+    expect(h.launches.map((launch) => launch.agentId)).toEqual(['agent-a'])
+    expect(h.rows.get('borrowed')).toMatchObject({ tmuxPane: '%7', runtimes: [{ backend: 'tmux', paneId: '%7' }] })
+    await settled(h, 1, 1)
+  })
+})
+
+describe('restoreAgents — updateRuntimes returning false', () => {
+  it('fails a terminal row whose updateRuntimes returns false: no setLaunch, no clearRemainOnExit', async () => {
+    const termRow = row({ agentId: 'term-x', engine: 'terminal', terminalHost: true, sessionId: '', boundAt: null })
+    const h = harness([termRow])
+    // Override updateRuntimes to return false for term-x
+    const originalUpdate = h.deps.registry.updateRuntimes
+    h.deps.registry.updateRuntimes = (id, runtimes, key) => {
+      if (id === 'term-x') return false
+      return originalUpdate(id, runtimes, key)
+    }
+
+    const summary = await restoreAgents(h.deps)
+
+    expect(summary.restored).toEqual([])
+    expect(summary.failed).toEqual([{ agentId: 'term-x', reason: expect.stringContaining('%0') }])
+    expect(h.calls.filter((c) => c.startsWith('setLaunch:term-x'))).toEqual([])
+    expect(h.calls.filter((c) => c.startsWith('clearRemainOnExit'))).toEqual([])
+  })
+
+  it('fails an engine row whose updateRuntimes returns false: releases the held route, no watch runs', async () => {
+    const engineRow = row({ agentId: 'eng-x', engine: 'claude' })
+    const h = harness([engineRow])
+    const originalUpdate = h.deps.registry.updateRuntimes
+    h.deps.registry.updateRuntimes = (id, runtimes, key) => {
+      if (id === 'eng-x') return false
+      return originalUpdate(id, runtimes, key)
+    }
+
+    const summary = await restoreAgents(h.deps)
+
+    expect(summary.restored).toEqual([])
+    expect(summary.failed).toEqual([{ agentId: 'eng-x', reason: expect.stringContaining('%0') }])
+    // The route was held (inside the transaction) and then immediately released
+    expect(h.calls).toContain('hold:tmux\u0000%0@tx')
+    expect(h.calls).toContain('release:tmux\u0000%0@tx')
+    // setLaunch never called for eng-x (not starting, not failed via this path)
+    expect(h.calls.filter((c) => c.startsWith('setLaunch:eng-x'))).toEqual([])
+    // No background watch: no probeProcess calls, no triggerHint
+    expect(h.calls.filter((c) => c.includes('triggerHint'))).toEqual([])
+  })
+
+  it('a normal row beside a rejected one still restores successfully', async () => {
+    const rejected = row({ agentId: 'rej', engine: 'codex', runtimes: [{ backend: 'tmux', paneId: '%10' }], primaryRuntimeKey: 'tmux\u0000%10', tmuxPane: '%10' })
+    const normal = row({ agentId: 'ok', runtimes: [{ backend: 'tmux', paneId: '%11' }], primaryRuntimeKey: 'tmux\u0000%11', tmuxPane: '%11' })
+    const h = harness([rejected, normal])
+    h.probes.set('%1', [identity(700)])
+    const originalUpdate = h.deps.registry.updateRuntimes
+    h.deps.registry.updateRuntimes = (id, runtimes, key) => {
+      if (id === 'rej') return false
+      return originalUpdate(id, runtimes, key)
+    }
+
+    const summary = await restoreAgents(h.deps)
+
+    expect(summary.failed.map((f) => f.agentId)).toContain('rej')
+    expect(summary.restored).toContain('ok')
+    // 1 watch (ok) + 1 success release + 1 synchronous release from the rejected row's releaseRoute
+    await vi.waitFor(() => { expect(h.released.length).toBe(3) })
+  })
+})

@@ -12,7 +12,8 @@ import type { TerminalStreamManager } from './lib/terminalStreamManager.js'
 import { decodeTerminalLocal, TerminalBinaryKind } from './lib/terminalBinary.js'
 import { registry, type RegisteredSession } from './lib/registry.js'
 import { stoppedAgents } from './lib/stoppedAgents.js'
-import { AgentStopError } from './lib/stopAgentService.js'
+import { AgentStopError, createStopAgentService } from './lib/stopAgentService.js'
+import { ExternalPaneError, EXTERNAL_PANE, EXTERNAL_PANE_DETAIL } from './lib/agentOwnership.js'
 import * as mediaPreview from './lib/mediaPreview.js'
 import * as gitProject from './lib/gitProject.js'
 import * as machineResources from './lib/machineResources.js'
@@ -3122,5 +3123,134 @@ describe('relay down-frames are default-deny: sealed, or the backend\'s own', ()
     socket.registerLocalClient('local:app', { sendFrame: () => true, sendBinary: () => true })
     await dispatch({ type: 'message', payload: { content: 'hi', agentId: 'a1' } }, 'local:app', 'local')
     expect(onMessage).toHaveBeenCalledWith('a1', 'hi')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// External pane dispatch gates
+// ---------------------------------------------------------------------------
+
+describe('external pane dispatch gates', () => {
+  const ownership = { kind: 'external' as const, backend: 'tmux' as const, socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId: '%77' }
+
+  let agentId: string
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    const row = registry.openPendingAgent({ engine: 'terminal', runtimes: [{ backend: 'tmux', paneId: '%77' }], cwd: '/tmp/ext' })!
+    agentId = row.agentId
+    Object.assign(row, { ownership, sessionId: '', processIdentity: null })
+  })
+
+  afterEach(() => {
+    try { registry.removeAgent(agentId) } catch {}
+  })
+
+  it('agent_delete with ExternalPaneError replies EXTERNAL_PANE and does not rethrow', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    socket.onDeleteAgent = async () => { throw new ExternalPaneError() }
+    await (socket as any).dispatchDown({ type: 'agent_delete', payload: { requestId: 'ext-del', agentId } }, 'local:ext')
+    const reply = frames.find(frame => frame.type === 'agent_delete_result')?.payload
+    expect(reply).toBeTruthy()
+    expect(reply.error).toBe(EXTERNAL_PANE)
+    expect(reply.detail).toBe(EXTERNAL_PANE_DETAIL)
+    expect(reply.deleted).toBeUndefined()
+    expect(reply.requestId).toBe('ext-del')
+    await socket.stop()
+  })
+
+  it('agent_delete through the real stop service: one correlated EXTERNAL_PANE reply, no side effect', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    const kill = vi.fn()
+    const save = vi.spyOn(stoppedAgents, 'save')
+    const restartJobs = { run: vi.fn(), cancel: vi.fn() } as any
+    const stopJobs = new Map<string, Promise<void>>()
+    const agentReconciler = { suppress: vi.fn(), holdRoute: vi.fn(), releaseRoute: vi.fn(), trigger: vi.fn(async () => {}) }
+    const forgetSession = vi.fn()
+    const markDeleted = vi.fn()
+    socket.onDeleteAgent = createStopAgentService({
+      registry, stoppedAgents, restartJobs, stopJobs, tmuxBackend: { kill }, agentReconciler,
+      forgetSession, markDeleted, clearDeleted: vi.fn(),
+    })
+    await expect((socket as any).dispatchDown({ type: 'agent_delete', payload: { requestId: 'ext-real', agentId } }, 'local:ext')).resolves.not.toThrow()
+    const replies = frames.filter(frame => frame.type === 'agent_delete_result')
+    expect(replies).toHaveLength(1)
+    expect(replies[0].payload).toMatchObject({ requestId: 'ext-real', error: EXTERNAL_PANE, detail: EXTERNAL_PANE_DETAIL })
+    expect(frames.some(frame => frame.type === 'agent_deleted')).toBe(false)
+    expect(kill).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(restartJobs.cancel).not.toHaveBeenCalled()
+    expect(stopJobs.size).toBe(0)
+    expect(agentReconciler.holdRoute).not.toHaveBeenCalled()
+    expect(forgetSession).not.toHaveBeenCalled()
+    expect(markDeleted).not.toHaveBeenCalled()
+    expect(registry.byAgent(agentId)?.ownership).toEqual(ownership)
+    await socket.stop()
+  })
+
+  it('agent_delete with AgentStopError still yields STOP_UNCONFIRMED', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    socket.onDeleteAgent = async () => { throw new AgentStopError('Cannot verify.') }
+    await (socket as any).dispatchDown({ type: 'agent_delete', payload: { requestId: 'ext-stop', agentId } }, 'local:ext')
+    const reply = frames.find(frame => frame.type === 'agent_delete_result')?.payload
+    expect(reply.error).toBe('STOP_UNCONFIRMED')
+    expect(reply.detail).toBe('Cannot verify.')
+    await socket.stop()
+  })
+
+  it('agent_update with name for an external row replies EXTERNAL_PANE without renaming', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    const onAgentRename = vi.fn()
+    const onRuntimeProfileUpdate = vi.fn(async () => {})
+    socket.onAgentRename = onAgentRename
+    socket.onRuntimeProfileUpdate = onRuntimeProfileUpdate
+    const nameBefore = registry.byAgent(agentId)?.title
+    await (socket as any).dispatchDown({ type: 'agent_update', payload: { requestId: 'ext-upd', agentId, name: 'new name' } }, 'local:ext')
+    const reply = frames.find(frame => frame.type === 'agent_update_result')?.payload
+    expect(reply.error).toBe(EXTERNAL_PANE)
+    expect(reply.detail).toBe(EXTERNAL_PANE_DETAIL)
+    expect(onAgentRename).not.toHaveBeenCalled()
+    expect(onRuntimeProfileUpdate).not.toHaveBeenCalled()
+    expect(registry.byAgent(agentId)?.title).toBe(nameBefore)
+    await socket.stop()
+  })
+
+  it('agent_update with selectedModel for an external row replies EXTERNAL_PANE', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    const onRuntimeProfileUpdate = vi.fn(async () => {})
+    socket.onRuntimeProfileUpdate = onRuntimeProfileUpdate
+    await (socket as any).dispatchDown({ type: 'agent_update', payload: { requestId: 'ext-model', agentId, selectedModel: 'opus' } }, 'local:ext')
+    const reply = frames.find(frame => frame.type === 'agent_update_result')?.payload
+    expect(reply.error).toBe(EXTERNAL_PANE)
+    expect(reply.detail).toBe(EXTERNAL_PANE_DETAIL)
+    expect(onRuntimeProfileUpdate).not.toHaveBeenCalled()
+    await socket.stop()
+  })
+
+  // terminal_info case at backendSocket.ts:2999 is UNREACHABLE: line 1985 intercepts all `terminal_*`
+  // types before the switch and returns unconditionally. The external pane guard at line 3008 is dead
+  // code. See source concern in the report.
+
+  it('question_response for an external row replies EXTERNAL_PANE without calling onQuestionAnswer', async () => {
+    const socket = new BackendSocket('fixture')
+    const frames: any[] = []
+    socket.registerLocalClient('local:ext', { sendFrame: frame => { frames.push(frame); return true }, sendBinary: () => true })
+    const onQuestionAnswer = vi.fn(async () => ({ ok: true as const }))
+    socket.onQuestionAnswer = onQuestionAnswer
+    await (socket as any).dispatchDown({ type: 'question_response', payload: { requestId: 'ext-qa', agentId, answers: { q1: 'a1' } } }, 'local:ext')
+    const reply = frames.find(frame => frame.type === 'question_response_result')?.payload
+    expect(reply.error).toBe(EXTERNAL_PANE)
+    expect(reply.detail).toBe(EXTERNAL_PANE_DETAIL)
+    expect(onQuestionAnswer).not.toHaveBeenCalled()
+    await socket.stop()
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { AgentEngine } from '../engines/types.js'
 import type { AgentCommandOwnershipSnapshot } from './engineBin.js'
 import type { ProcessRow } from './tmux.js'
@@ -6,11 +6,26 @@ import type { RegisteredSession } from './registry.js'
 import {
   TmuxAgentReconciler,
   discoverTmuxAgentsFromSnapshot,
+  listAllTmuxPanes,
+  listTmuxPanes,
   parsePanes,
   runtimeKey,
   type DiscoveredTmuxAgent,
   type TmuxAgentProbe,
 } from './tmuxAgentDiscovery.js'
+
+// Mock child_process so listTmuxPanes / listAllTmuxPanes never touch a real tmux server.
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    cb(new Error('not configured'), '')
+  }),
+}))
+
+// Mock setPaneMouseOn so reconciler tests can observe which panes it fires on.
+vi.mock('./tmux.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./tmux.js')>()
+  return { ...original, setPaneMouseOn: vi.fn(async () => {}) }
+})
 
 const START = 'Mon Aug 10 12:00:00 2026'
 const pane = { tmuxPane: '%1', rootPid: 1, tmuxSessionName: 'harness-claude-1', cwd: '/work/demo' }
@@ -511,5 +526,158 @@ describe('tmux process agent lifecycle reconciliation', () => {
     await reconciler.trigger()
     await reconciler.trigger()
     expect(added).toEqual([runtimeKey(observed(11))])
+  })
+})
+
+// ── listTmuxPanes / listAllTmuxPanes ──────────────────────────────────────────
+import { execFile } from 'node:child_process'
+
+function mockExecFile(handler: (cmd: string, args: string[], cb: (err: Error | null, stdout: string) => void) => void): void {
+  vi.mocked(execFile).mockImplementation(((cmd: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    handler(cmd, args, cb)
+  }) as typeof execFile)
+}
+
+describe('listTmuxPanes / listAllTmuxPanes inventory', () => {
+  beforeEach(() => { vi.mocked(execFile).mockReset() })
+
+  const TMUX_OUTPUT = [
+    '%0|100|work|/home/user/projects',
+    '%1|200|harness-claude-1759000000000|/tmp/demo',
+    '%2|300|claude-1787912296587|/old/legacy',
+    '%3|400|mysession|/a|b/c',
+  ].join('\n') + '\n'
+
+  it('listAllTmuxPanes returns every pane including harness-prefixed and pipe-in-path', async () => {
+    mockExecFile((_cmd, _args, cb) => cb(null, TMUX_OUTPUT))
+    const result = await listAllTmuxPanes()
+    expect(result).toEqual({
+      ok: true,
+      panes: [
+        { tmuxPane: '%0', rootPid: 100, tmuxSessionName: 'work', cwd: '/home/user/projects' },
+        { tmuxPane: '%1', rootPid: 200, tmuxSessionName: 'harness-claude-1759000000000', cwd: '/tmp/demo' },
+        { tmuxPane: '%2', rootPid: 300, tmuxSessionName: 'claude-1787912296587', cwd: '/old/legacy' },
+        { tmuxPane: '%3', rootPid: 400, tmuxSessionName: 'mysession', cwd: '/a|b/c' },
+      ],
+    })
+  })
+
+  it('listTmuxPanes returns only harness-prefixed sessions', async () => {
+    mockExecFile((_cmd, _args, cb) => cb(null, TMUX_OUTPUT))
+    const result = await listTmuxPanes()
+    expect(result).toEqual({
+      ok: true,
+      panes: [
+        { tmuxPane: '%1', rootPid: 200, tmuxSessionName: 'harness-claude-1759000000000', cwd: '/tmp/demo' },
+      ],
+    })
+  })
+
+  it('both return { ok: true, panes: [] } on no-server error', async () => {
+    mockExecFile((_cmd, _args, cb) => cb(new Error('no server running on /tmp/tmux-501/default'), ''))
+    const [all, filtered] = await Promise.all([listAllTmuxPanes(), listTmuxPanes()])
+    expect(all).toEqual({ ok: true, panes: [] })
+    expect(filtered).toEqual({ ok: true, panes: [] })
+  })
+
+  it('both propagate a non-server error as { ok: false }', async () => {
+    mockExecFile((_cmd, _args, cb) => cb(new Error('tmux binary not found'), ''))
+    const [all, filtered] = await Promise.all([listAllTmuxPanes(), listTmuxPanes()])
+    expect(all).toEqual({ ok: false, error: 'tmux binary not found' })
+    expect(filtered).toEqual({ ok: false, error: 'tmux binary not found' })
+  })
+})
+
+// ── reconciler setPaneMouseOn skips external-only panes ───────────────────────
+import { setPaneMouseOn } from './tmux.js'
+
+describe('reconciler skips setPaneMouseOn for external-only panes', () => {
+  beforeEach(() => { vi.mocked(setPaneMouseOn).mockReset() })
+
+  function externalRow(paneId: string): RegisteredSession {
+    return {
+      ...registered(observed(1)),
+      agentId: `ext-${paneId}`,
+      engine: 'terminal',
+      tmuxPane: paneId,
+      runtimes: [{ backend: 'tmux', paneId }],
+      primaryRuntimeKey: `tmux\u0000${paneId}`,
+      sessionId: '',
+      processIdentity: null,
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/tmux-501/default', serverIdentity: 'pid:1@2', paneId },
+    }
+  }
+
+  function managedRow(paneId: string): RegisteredSession {
+    return {
+      ...registered(observed(2)),
+      agentId: `managed-${paneId}`,
+      engine: 'claude',
+      tmuxPane: paneId,
+      runtimes: [{ backend: 'tmux', paneId }],
+      primaryRuntimeKey: `tmux\u0000${paneId}`,
+    }
+  }
+
+  it('calls setPaneMouseOn for managed and mixed panes but not external-only', async () => {
+    const ext1 = externalRow('%1')
+    const ext2 = externalRow('%2')
+    const managed2 = managedRow('%2')
+    const current: RegisteredSession[] = [ext1, ext2, managed2]
+
+    const probeResult: TmuxAgentProbe = {
+      ok: true,
+      agents: [],
+      panes: new Set(['%1', '%2', '%3']),
+      ambiguousPanes: new Set(),
+    }
+
+    const reconciler = new TmuxAgentReconciler({
+      current: () => current,
+      probe: async () => probeResult,
+      onDiscovered: () => {},
+      onObserved: () => {},
+      onRemoved: () => {},
+    })
+
+    await reconciler.trigger()
+
+    const calledPanes = vi.mocked(setPaneMouseOn).mock.calls.map((c) => c[0])
+    expect(calledPanes).toContain('%2')
+    expect(calledPanes).toContain('%3')
+    expect(calledPanes).not.toContain('%1')
+  })
+
+  it('external row is never passed to onRemoved after misses', async () => {
+    const ext = externalRow('%1')
+    const managed = managedRow('%5')
+    const current: RegisteredSession[] = [ext, managed]
+
+    // Three scans: all see pane %1 and %5 present but no agents in them
+    const removed: string[] = []
+    const reconciler = new TmuxAgentReconciler({
+      current: () => current,
+      probe: async () => ({
+        ok: true,
+        agents: [],
+        panes: new Set(['%1', '%5']),
+        ambiguousPanes: new Set(),
+      }),
+      onDiscovered: () => {},
+      onObserved: () => {},
+      onRemoved: (agent) => {
+        removed.push(agent.agentId)
+        const idx = current.indexOf(agent)
+        if (idx >= 0) current.splice(idx, 1)
+      },
+    })
+
+    await reconciler.trigger()
+    await reconciler.trigger()
+    await reconciler.trigger()
+
+    // The managed row should be removed after 2 misses, but the external one never
+    expect(removed).toContain(`managed-%5`)
+    expect(removed).not.toContain(`ext-%1`)
   })
 })
