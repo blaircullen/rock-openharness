@@ -47,6 +47,7 @@ static ht_visit_t visit;
 static ht_form_t form;
 static ht_draft_t draft;
 static ht_workspace_t workspace;
+static ht_tab_carousel_t tab_carousel;
 static struct {
     bool quick_open, coasting, ready, connected, loading, nap, voice_open, voice_start_pending, voice_waiting, voice_carry, voice_review, voice_review_preview, voice_draft_append, voice_search, touch_down, touch_cancelled;
     int pet_pose, view, voice_return, offset, pressed, active;
@@ -118,6 +119,7 @@ for name in ['habitat_tick', 'ui_set_connected', 'ui_show_error', 'ui_cable_toas
 harness += r'''
 static void reset(void) {
     memset(&workspace,0,sizeof workspace);
+    memset(&tab_carousel,0,sizeof tab_carousel);
     host_features=31; memset(&draft,0,sizeof draft); reviews=0; memset(&s, 0, sizeof(s)); memset(&visit, 0, sizeof(visit)); memset(&carry,0,sizeof(carry)); now = 1000;
     s.ready = s.connected = true; s.view = HOME;
     strcpy(s.agents[0].name, "Agent");
