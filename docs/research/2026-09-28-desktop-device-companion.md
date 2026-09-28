@@ -14,7 +14,7 @@ life cycle and his full emotional range before extending this work to other
 species. The user will select Tim under Settings → Experimental. This is not a
 request to reset an existing account collection or replace an owned individual.
 
-This builds on PR #442 (`c500b8a5`): shared Tim/Tux character rendering, local
+This builds on PR #442 (`c500b8a5`), rebased onto #444 (`805d3deb`): shared Tim/Tux character rendering, local
 animation, tap-to-speak, the separate bell/inbox, and one CableSession per device.
 The existing account collection and pair brain remain the source of persistent
 identity and work observations; the desktop owns the presentation sent to USB.
@@ -105,9 +105,12 @@ implementation has not been installed in the running desktop app or flashed.
 - Desktop: 203 relevant unit/widget checks pass, including the actual saved egg,
   server-style hatch, daily earning caps, the same Tim UID/seed at all three ages,
   live tools versus replay, PR baselines, and Experimental off. A follow-up 21-test
-  off/lifetime suite covers disposing the workspace. macOS debug build passes.
-- CLI: companion state, art, actions, local socket boundaries, CableSession and
-  CableFleet tests pass. Type checking and the CLI build pass. The build retains
+  off/lifetime suite covers disposing the workspace. After rebasing onto #444,
+  notification/question compatibility checks and the 35-test workspace suite
+  pass. macOS debug build passes, and all ten changed application files pass
+  static analysis without findings.
+- CLI: 215 checks covering companion state, art, actions, local socket boundaries,
+  CableSession, CableFleet and the newly unified notifications pass. Type checking and the CLI build pass. The build retains
   an existing `require` warning in `dsh/verdict.spec.ts`.
 - Production replay: 15 actual Dart-serialized lifecycle snapshots enter
   `DesktopCompanion` and `CableSession`, which emit real framed USB bytes into a

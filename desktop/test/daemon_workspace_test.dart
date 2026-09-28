@@ -782,14 +782,18 @@ void main() {
     await tester.pump();
     app.adoptSessionForTest(terminal('a0', []));
     app.adoptSessionForTest(terminal('a1', []));
-    await tester.pump();
-    final beforeTurns = tester.getRect(slot);
-    // a1 is in front: its turn is seen already; a0's is not.
+    // Establish the live pane/model context before comparing completion. The
+    // bottom bar now puts that model control beside the companion.
     for (final id in ['a0', 'a1']) {
       await app.handleMachineEventForTest('m', {
         'type': 'turn_started',
         'agentId': id,
       });
+    }
+    await tester.pump();
+    final beforeTurns = tester.getRect(slot);
+    // a1 is in front: its turn is seen already; a0's is not.
+    for (final id in ['a0', 'a1']) {
       await app.handleMachineEventForTest('m', {
         'type': 'turn_ended',
         'agentId': id,
