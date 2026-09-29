@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:harness_mobile/core/app_version.dart';
+import 'package:harness_mobile/core/fork_build.dart';
 import 'package:harness_mobile/demo/sample_mode.dart'
     show SampleMode, SampleSession, openSampleMode;
 import 'package:harness_mobile/core/device_name.dart';
@@ -628,7 +629,7 @@ class _VersionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<String>(
-    future: runningAppVersion(),
+    future: runningAppVersion().then(rockForkVersion),
     builder: (context, snapshot) {
       AppTheme.watch(context);
       return SettingsRow(title: 'Version', value: snapshot.data ?? '');

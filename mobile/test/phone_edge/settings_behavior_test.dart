@@ -102,7 +102,7 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('1.2.3'), findsOneWidget);
+    expect(find.text('1.2.3-rock'), findsOneWidget);
     await close(tester, app);
   });
 

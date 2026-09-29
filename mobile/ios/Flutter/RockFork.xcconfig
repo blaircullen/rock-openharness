@@ -1,0 +1,7 @@
+// Rock's signing and on-device identity. Keep all fork values here.
+ROCK_APP_DISPLAY_NAME = Rock OpenHarness
+ROCK_RUNNER_BUNDLE_ID = com.blaircullen.rockopenharness
+ROCK_RUNNER_TESTS_BUNDLE_ID = com.blaircullen.rockopenharness.RunnerTests
+ROCK_DEVELOPMENT_TEAM = U9SB3CXF74
+DEVELOPMENT_TEAM = $(ROCK_DEVELOPMENT_TEAM)
+CODE_SIGN_STYLE = Automatic
