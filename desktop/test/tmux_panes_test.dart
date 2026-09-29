@@ -252,6 +252,25 @@ void main() {
       },
     );
 
+    test('never asks to change a borrowed pane\'s model', () async {
+      final machine = app.stateOf('m')!;
+      machine.agents = [
+        ...machine.agents,
+        Agent.fromJson(Map.of(_borrowedFrame)),
+      ];
+      await app.retargetAgentToGridModel('m', 'borrowed-1', 'model');
+      await app.retargetAgentToApiModel(
+        'm',
+        'borrowed-1',
+        connectionId: 'c',
+        modelId: 'model',
+      );
+      expect(
+        connection.requests.map((r) => r.$1),
+        isNot(contains('agent_retarget')),
+      );
+    });
+
     test('refuses a machine that is not connected before asking it', () async {
       app.stateOf('m')!.connectionStatus = ConnectionStatus.disconnected;
       await expectLater(app.listTmuxPanes('m'), throwsA(isA<TmuxPaneError>()));

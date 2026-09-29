@@ -5853,12 +5853,21 @@ class AppNotifier extends ChangeNotifier {
   /// a menu rather than something that can happen by hovering.
   /// [gridName] is the grid the model was picked from — a shared grid's section in the picker.
   /// Absent, the daemon uses the account's own grid, as it always did.
+  /// A borrowed tmux pane never changes model: the daemon refuses, so do not ask.
+  bool _borrowedPane(String machineId, String agentId) =>
+      stateOf(machineId)?.agents
+          .where((agent) => agent.id == agentId)
+          .firstOrNull
+          ?.isExternal ==
+      true;
+
   Future<void> retargetAgentToGridModel(
     String machineId,
     String agentId,
     String modelId, {
     String? gridName,
   }) async {
+    if (_borrowedPane(machineId, agentId)) return;
     try {
       await _conn(machineId).request(
         'agent_retarget',
@@ -5887,6 +5896,7 @@ class AppNotifier extends ChangeNotifier {
     required String connectionId,
     required String modelId,
   }) async {
+    if (_borrowedPane(machineId, agentId)) return;
     try {
       await _conn(machineId).request(
         'agent_retarget',
