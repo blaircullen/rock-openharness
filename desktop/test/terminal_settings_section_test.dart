@@ -82,7 +82,7 @@ void main() {
     expect(field.value, terminalThemeStore.value);
     // The store is the real singleton — see this file's header. Read only.
     expect(terminalThemeStore.value, TerminalThemeChoice.fallback);
-    expect(find.text('Match app appearance'), findsWidgets);
+    expect(find.text('Pi'), findsWidgets);
   });
 
   testWidgets('the preview refuses the app-wide text scale', (tester) async {

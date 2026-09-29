@@ -49,6 +49,7 @@ TerminalTheme terminalScreenThemeFor(
   // A whole scheme of its own: the app palette is not consulted at all, which
   // is the entire point of offering it.
   TerminalThemeChoice.tango => tangoTerminalTheme,
+  TerminalThemeChoice.pi => piTerminalTheme,
   TerminalThemeChoice.dark => darkTerminalTheme,
   TerminalThemeChoice.light => lightTerminalTheme,
   TerminalThemeChoice.matchApp => _matchApp(palette),
@@ -81,39 +82,65 @@ TerminalTheme terminalThemeFor(
 /// The ANSI ramp follows the palette's brightness: the dark ramp's pale yellow
 /// and white are unreadable on a light ground, and the light ramp's deep ones
 /// vanish on a dark one.
-TerminalTheme _matchApp(HarnessPalette palette) => _palettes.putIfAbsent(
-  palette,
-  () {
-    final ramp = palette.isDark ? darkTerminalTheme : lightTerminalTheme;
-    return TerminalTheme(
-      cursor: palette.accent,
-      selection: palette.accent.withValues(alpha: 0.3),
-      foreground: palette.foreground,
-      background: palette.background,
-      black: ramp.black,
-      red: ramp.red,
-      green: ramp.green,
-      yellow: ramp.yellow,
-      blue: ramp.blue,
-      magenta: ramp.magenta,
-      cyan: ramp.cyan,
-      white: ramp.white,
-      brightBlack: ramp.brightBlack,
-      brightRed: ramp.brightRed,
-      brightGreen: ramp.brightGreen,
-      brightYellow: ramp.brightYellow,
-      brightBlue: ramp.brightBlue,
-      brightMagenta: ramp.brightMagenta,
-      brightCyan: ramp.brightCyan,
-      brightWhite: ramp.brightWhite,
-      searchHitBackground: ramp.searchHitBackground,
-      searchHitBackgroundCurrent: ramp.searchHitBackgroundCurrent,
-      searchHitForeground: ramp.searchHitForeground,
-    );
-  },
-);
+TerminalTheme _matchApp(HarnessPalette palette) =>
+    _palettes.putIfAbsent(palette, () {
+      final ramp = palette.isDark ? darkTerminalTheme : lightTerminalTheme;
+      return TerminalTheme(
+        cursor: palette.accent,
+        selection: palette.accent.withValues(alpha: 0.3),
+        foreground: palette.foreground,
+        background: palette.background,
+        black: ramp.black,
+        red: ramp.red,
+        green: ramp.green,
+        yellow: ramp.yellow,
+        blue: ramp.blue,
+        magenta: ramp.magenta,
+        cyan: ramp.cyan,
+        white: ramp.white,
+        brightBlack: ramp.brightBlack,
+        brightRed: ramp.brightRed,
+        brightGreen: ramp.brightGreen,
+        brightYellow: ramp.brightYellow,
+        brightBlue: ramp.brightBlue,
+        brightMagenta: ramp.brightMagenta,
+        brightCyan: ramp.brightCyan,
+        brightWhite: ramp.brightWhite,
+        searchHitBackground: ramp.searchHitBackground,
+        searchHitBackgroundCurrent: ramp.searchHitBackgroundCurrent,
+        searchHitForeground: ramp.searchHitForeground,
+      );
+    });
 
 final _palettes = <HarnessPalette, TerminalTheme>{};
+
+/// Warp's Claude Code terminal palette, used with pi's built-in dark theme.
+/// Selection follows the other dark themes: a translucent bright blue overlay.
+const piTerminalTheme = TerminalTheme(
+  cursor: Color(0xff6da7ec),
+  selection: Color(0x666da7ec),
+  foreground: Color(0xffe7e6e1),
+  background: Color(0xff1a1a19),
+  black: Color(0xff0d0d0d),
+  red: Color(0xffe34948),
+  green: Color(0xff0ca30c),
+  yellow: Color(0xffb97d10),
+  blue: Color(0xff3987e5),
+  magenta: Color(0xff9d6bf0),
+  cyan: Color(0xff3fb8a8),
+  white: Color(0xffe7e6e1),
+  brightBlack: Color(0xff898781),
+  brightRed: Color(0xffe06c6c),
+  brightGreen: Color(0xff5ce05c),
+  brightYellow: Color(0xfffab219),
+  brightBlue: Color(0xff6da7ec),
+  brightMagenta: Color(0xffc9a0ff),
+  brightCyan: Color(0xff5fd7c9),
+  brightWhite: Color(0xfff3f3f0),
+  searchHitBackground: Color(0xffffff2b),
+  searchHitBackgroundCurrent: Color(0xff31ff26),
+  searchHitForeground: Color(0xff000000),
+);
 
 /// The ANSI ramp a light palette's terminal uses: GitHub Light's, with the five
 /// slots it leaves under text contrast on a near-white ground darkened (same

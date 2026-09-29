@@ -112,6 +112,16 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   fonts:
+    - family: Hack
+      fonts:
+        - asset: assets/fonts/hack/Hack-Regular.ttf
+        - asset: assets/fonts/hack/Hack-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/hack/Hack-Italic.ttf
+          style: italic
+        - asset: assets/fonts/hack/Hack-BoldItalic.ttf
+          weight: 700
+          style: italic
     - family: Roboto Mono
       fonts:
         - asset: assets/fonts/roboto-mono/RobotoMono.ttf
@@ -123,6 +133,7 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
+    - assets/fonts/hack/LICENSE.md
     - assets/fonts/roboto-mono/OFL.txt
     - assets/machines.svg
     - assets/models.svg

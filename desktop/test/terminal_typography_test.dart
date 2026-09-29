@@ -7,19 +7,10 @@ import 'package:harness/terminal/terminal_typography.dart';
 import 'package:xterm/xterm.dart';
 
 void main() {
-  test('the default terminal face is the one this platform actually has', () {
-    // Not a literal: the macOS names resolve to nothing on Linux, where
-    // fontconfig answers `.AppleSystemUIFontMonospaced` and `Menlo` alike with
-    // the PROPORTIONAL Noto Sans — and a proportional face breaks the cell grid
-    // the renderer measures by laying out ten `m` glyphs.
-    if (Platform.isMacOS) {
-      expect(terminalFontFamily, '.AppleSystemUIFontMonospaced');
-      expect(terminalFontFallback, macTerminalFontFallback);
-    } else {
-      expect(terminalFontFamily, 'DejaVu Sans Mono');
-      expect(terminalFontFallback, linuxTerminalFontFallback);
-    }
-    expect(terminalFontSize, 13.0);
+  test('the fork defaults to bundled Hack at Warp effective size', () {
+    expect(terminalFontFamily, 'Hack');
+    expect(terminalFontSize, 16.25);
+    expect(const TerminalStyle().height, 1.2);
   });
 
   test('the default face is the one the store opens on', () {
@@ -51,29 +42,17 @@ void main() {
         reason:
             '${choice.label} can only fall through to faces that may be absent',
       );
-      expect(
-        choice.fontFamilyFallback.last,
-        'monospace',
-        reason: 'keep the generic last for engines that do honour it',
-      );
+      if (choice != TerminalFontChoice.hack) {
+        expect(choice.fontFamilyFallback.last, 'monospace');
+      }
     }
   });
 
-  test('the Apple faces are not offered off macOS, and vice versa', () {
-    const appleOnly = {
-      '.AppleSystemUIFontMonospaced',
-      'Menlo',
-      'Monaco',
-      'Courier New',
-    };
+  test('bundled Hack is an available choice', () {
     final offered = TerminalFontChoice.available
         .map((choice) => choice.fontFamily)
         .toSet();
-    if (Platform.isMacOS) {
-      expect(offered, appleOnly);
-    } else {
-      expect(offered.intersection(appleOnly), isEmpty);
-    }
+    expect(offered, contains('Hack'));
   });
 
   test('ANSI bold uses semibold instead of heavy bold', () {

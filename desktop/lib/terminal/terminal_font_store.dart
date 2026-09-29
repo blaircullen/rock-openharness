@@ -5,6 +5,7 @@ import 'package:xterm/xterm.dart';
 
 import '../core/harness_file_store.dart';
 import '../core/local_key_value_store.dart';
+import '../core/fork_build.dart';
 import 'terminal_typography.dart';
 
 /// A monospace font the terminal is allowed to render in.
@@ -15,7 +16,7 @@ import 'terminal_typography.dart';
 /// monospace assumption. A proportional font would misalign every column a
 /// remote TUI draws regardless of how correctly resize is handled. Nothing here
 /// needs Flutter to enumerate installed fonts (it can't) or risk a silent
-/// substitution — every face named is one the OS it is offered on ships.
+/// substitution. Hack is bundled; the other faces come from the host OS.
 ///
 /// Which is why the list is per-platform ([available]). The first four are
 /// stock macOS and resolve to nothing on Linux: fontconfig answers `Menlo` and
@@ -28,6 +29,7 @@ import 'terminal_typography.dart';
 /// carried to a Linux box still loads, and the Settings dropdown keeps showing
 /// whatever is actually selected (see `_FamilyDropdown`).
 enum TerminalFontChoice {
+  hack('Hack', 'Hack', ['Roboto Mono', 'Menlo', 'DejaVu Sans Mono']),
   robotoMono('Roboto Mono', webTerminalFontFamily, []),
   sfMono('SF Mono', macTerminalFontFamily, macTerminalFontFallback),
   menlo('Menlo', 'Menlo', ['Monaco', 'Courier New', 'monospace']),
@@ -71,8 +73,9 @@ enum TerminalFontChoice {
   final String fontFamily;
   final List<String> fontFamilyFallback;
 
-  static const _macChoices = [sfMono, menlo, monaco, courierNew];
+  static const _macChoices = [hack, sfMono, menlo, monaco, courierNew];
   static const _linuxChoices = [
+    hack,
     dejaVuSansMono,
     ubuntuSansMono,
     ubuntuMono,
@@ -87,11 +90,15 @@ enum TerminalFontChoice {
   /// at least ends every fallback at the generic `monospace`, which Windows
   /// does resolve.
   static List<TerminalFontChoice> get available => kIsWeb
-      ? const [robotoMono]
+      ? const [hack, robotoMono]
       : (hasAppleFonts ? _macChoices : _linuxChoices);
 
   /// What a fresh install opens with, and what `reset()` returns to.
-  static TerminalFontChoice get defaultForPlatform =>
+  static TerminalFontChoice get defaultForPlatform => kRockForkBuild
+      ? hack
+      : (kIsWeb ? robotoMono : (hasAppleFonts ? sfMono : dejaVuSansMono));
+
+  static TerminalFontChoice get upstreamDefaultForPlatform =>
       kIsWeb ? robotoMono : (hasAppleFonts ? sfMono : dejaVuSansMono);
 }
 
@@ -146,6 +153,13 @@ class TerminalFontStore extends ValueNotifier<TerminalStyle> {
 
   double get size => value.fontSize;
 
+  /// The surrounding app keeps its compact typography on a fresh fork install.
+  /// The terminal grid itself always uses [value]. A user-selected font or
+  /// size still flows through terminal-styled chrome as before.
+  TerminalStyle get chromeStyle => kRockForkBuild && isDefault
+      ? _styleFor(TerminalFontChoice.upstreamDefaultForPlatform, 13)
+      : value;
+
   /// Read the saved choice, if there is one. Failure (or a stale/unknown
   /// family name from an older build) is silent and lands on the default —
   /// an unreadable state file is not a reason to refuse to start.
@@ -158,7 +172,9 @@ class TerminalFontStore extends ValueNotifier<TerminalStyle> {
           .where(
             (c) =>
                 c.name == savedFamily &&
-                (!kIsWeb || c == TerminalFontChoice.robotoMono),
+                (!kIsWeb ||
+                    c == TerminalFontChoice.robotoMono ||
+                    c == TerminalFontChoice.hack),
           )
           .firstOrNull;
       final size = savedSize == null ? null : double.tryParse(savedSize);

@@ -25,6 +25,8 @@ import '../state/terminal_pane.dart';
 import '../terminal/terminal_binary.dart';
 import '../terminal/terminal_text.dart';
 import '../terminal/terminal_session.dart';
+import '../terminal/terminal_theme.dart';
+import '../terminal/terminal_theme_store.dart';
 import '../theme/app_theme.dart';
 import 'agent_drag.dart';
 import 'harness_join_guide_screen.dart';
@@ -1046,10 +1048,7 @@ class _MinTile {
     // The renderer measures its cell by laying out ten 'm' and dividing; do the
     // same here rather than inventing a second idea of how wide a column is.
     final painter = TextPainter(
-      text: TextSpan(
-        text: 'mmmmmmmmmm',
-        style: terminalTextStyle(height: style.height),
-      ),
+      text: TextSpan(text: 'mmmmmmmmmm', style: style.toTextStyle()),
       textDirection: TextDirection.ltr,
     )..layout();
     final cellW = painter.width / 10;
@@ -1190,7 +1189,10 @@ class _PaneCell extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (visible) pane.lastViewSize = constraints.biggest;
-          return _build(context);
+          return ListenableBuilder(
+            listenable: terminalThemeStore,
+            builder: (context, _) => _build(context),
+          );
         },
       ),
     );
@@ -1213,12 +1215,10 @@ class _PaneCell extends StatelessWidget {
       child: Container(
         key: ValueKey('pane-frame:${pane.id}'),
         decoration: BoxDecoration(
-          // UNCHANGED, and deliberately: the terminal renders its own background
-          // inside this box, so a tile that stops matching the window colour
-          // shows a seam between the header strip and the terminal under it.
-          // What changes to make the gaps visible is the field BEHIND the grid
-          // (see _GridField), which is the part the gaps actually show.
-          color: grid.AppPalette.windowBg,
+          // The pane rim must meet the terminal's own ground without a seam.
+          color: terminalThemeStore.value == TerminalThemeChoice.pi
+              ? piTerminalTheme.background
+              : grid.AppPalette.windowBg,
           borderRadius: BorderRadius.circular(_paneRadius),
           // The rim is always drawn — it is what gives an unfocused card its
           // edge, now that no shared line does. It only CHANGES COLOUR on

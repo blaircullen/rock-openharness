@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/fork_build.dart';
+
 /// The default terminal face, per platform.
 ///
 /// Every family named here has to actually resolve on the OS it is named for,
@@ -63,12 +65,11 @@ const linuxTerminalFontFallback = <String>[
   'monospace',
 ];
 
-/// The default terminal font size: 13 on a desktop, 14 on a phone.
+/// The fork defaults to 16pt on a phone; upstream defaults to 14pt.
 ///
-/// Tried on an iPhone: 13 read as small print, 16 as far too big. Monospace is wider than the
-/// proportional faces reading apps use — X sets posts at about 15 — so 14 here reads about as large
-/// as those, and keeps about 43 columns on a 390pt iPhone.
+/// The fork follows Blair's 16pt phone web terminal. Other platforms use
+/// Warp's 13pt at 125% zoom; upstream retains its previous defaults.
 double get terminalFontSize => switch (defaultTargetPlatform) {
-  TargetPlatform.iOS || TargetPlatform.android => 14.0,
-  _ => 13.0,
+  TargetPlatform.iOS || TargetPlatform.android => kRockForkBuild ? 16.0 : 14.0,
+  _ => kRockForkBuild ? 16.25 : 13.0,
 };

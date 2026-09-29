@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/harness_file_store.dart';
 import '../core/local_key_value_store.dart';
+import '../core/fork_build.dart';
 
 /// A colour scheme the terminal is allowed to draw itself in.
 ///
@@ -22,10 +23,7 @@ enum TerminalThemeChoice {
   /// Today's behaviour, and still the default: ground and cursor follow the
   /// palette chosen in Settings ▸ Appearance, and the ANSI ramp its brightness
   /// (`darkTerminalTheme`'s or `lightTerminalTheme`'s).
-  matchApp(
-    'Same as the app',
-    'Ground and cursor follow Settings ▸ Appearance',
-  ),
+  matchApp('Same as the app', 'Ground and cursor follow Settings ▸ Appearance'),
 
   /// Harness's own dark screen whatever the app wears — a light app with a
   /// dark terminal, the way many people keep an editor.
@@ -34,6 +32,7 @@ enum TerminalThemeChoice {
   /// Harness's own light screen whatever the app wears — the reverse, for
   /// reading output on white inside a dark app.
   light('Light', 'A light screen, whatever the app colors'),
+  pi('Pi', 'Warp palette for pi'),
 
   /// ⚠️ Named for the PALETTE, not for the distribution that popularised it.
   /// These sixteen colours are the Tango Desktop Project's, which GNOME
@@ -55,7 +54,7 @@ enum TerminalThemeChoice {
   final String detail;
 
   /// What a fresh install opens with, and what a reset returns to.
-  static const fallback = matchApp;
+  static const fallback = kRockForkBuild ? pi : matchApp;
 }
 
 /// The user's chosen terminal colour scheme, remembered across launches.

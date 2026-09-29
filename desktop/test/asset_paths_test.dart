@@ -22,16 +22,19 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Interpolated paths (the wallpapers build theirs from an enum) cannot be seen
 /// from here and are covered by the suites that load them.
-final _assetLiteral = RegExp(r'''['"](assets/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)['"]''');
+final _assetLiteral = RegExp(
+  r'''['"](assets/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)['"]''',
+);
 
 void main() {
   test('every asset path named in lib/ resolves to a file', () {
     final missing = <String>[];
     var checked = 0;
-    for (final file in Directory('lib')
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))) {
+    for (final file
+        in Directory('lib')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))) {
       final source = file.readAsStringSync();
       for (final match in _assetLiteral.allMatches(source)) {
         final path = match.group(1)!;
@@ -39,10 +42,20 @@ void main() {
         if (!File(path).existsSync()) missing.add('$path  (${file.path})');
       }
     }
-    expect(checked, greaterThan(50), reason: 'the scan found almost nothing — '
-        'the pattern probably stopped matching how paths are written');
-    expect(missing, isEmpty, reason: 'named in code, absent on disk:\n'
-        '${missing.join('\n')}');
+    expect(
+      checked,
+      greaterThan(50),
+      reason:
+          'the scan found almost nothing — '
+          'the pattern probably stopped matching how paths are written',
+    );
+    expect(
+      missing,
+      isEmpty,
+      reason:
+          'named in code, absent on disk:\n'
+          '${missing.join('\n')}',
+    );
   });
 
   test('every bundled asset is named by code, or is a licence beside one', () {
@@ -63,9 +76,17 @@ void main() {
         .where((f) => f.path.endsWith('.dart'))
         .map((f) => f.readAsStringSync())
         .join('\n');
-    final manifest = File('assets/store/covers/sources.json').readAsStringSync();
+    final bundledFonts = RegExp(r'assets/fonts/hack/[^\s]+')
+        .allMatches(File('pubspec.yaml').readAsStringSync())
+        .map((match) => match.group(0)!.split('/').last)
+        .toSet();
+    final manifest = File('assets/store/covers/sources.json')
+        .readAsStringSync();
 
-    bool named(String name) => source.contains(name) || manifest.contains(name);
+    bool named(String name) =>
+        source.contains(name) ||
+        manifest.contains(name) ||
+        bundledFonts.contains(name);
     bool attribution(String name) =>
         name.startsWith('LICENSE') ||
         name.endsWith('.LICENSE') ||
@@ -73,9 +94,9 @@ void main() {
         name == 'sources.json';
 
     final orphans = <String>[];
-    for (final file in Directory('assets')
-        .listSync(recursive: true)
-        .whereType<File>()) {
+    for (final file in Directory(
+      'assets',
+    ).listSync(recursive: true).whereType<File>()) {
       final path = file.path;
       final name = path.split('/').last;
       final dir = path.substring(0, path.length - name.length);

@@ -2,6 +2,8 @@ import '../core/apple_fonts.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../core/fork_build.dart';
+
 /// The default terminal face, per platform.
 ///
 /// Every family named here has to actually resolve on the OS it is named for,
@@ -73,13 +75,17 @@ const linuxTerminalFontFallback = <String>[
 /// A getter, not a `const`: the answer depends on the host. The per-platform
 /// constants above stay `const` so `TerminalFontChoice` can still name them
 /// from its const constructor.
-String get terminalFontFamily => kIsWeb
+String get terminalFontFamily => kRockForkBuild
+    ? 'Hack'
+    : kIsWeb
     ? webTerminalFontFamily
     : (hasAppleFonts ? macTerminalFontFamily : linuxTerminalFontFamily);
 
-List<String> get terminalFontFallback => kIsWeb
+List<String> get terminalFontFallback => kRockForkBuild
+    ? const ['Roboto Mono', 'Menlo', 'DejaVu Sans Mono']
+    : kIsWeb
     ? const []
     : (hasAppleFonts ? macTerminalFontFallback : linuxTerminalFontFallback);
 
-/// The default terminal font size — the same on every platform.
-const terminalFontSize = 13.0;
+/// Fork terminal size matches Warp's 13pt at 125% zoom; upstream stays 13pt.
+const terminalFontSize = kRockForkBuild ? 16.25 : 13.0;

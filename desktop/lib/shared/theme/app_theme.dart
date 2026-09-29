@@ -1400,7 +1400,7 @@ abstract final class AppFont {
   static const double uiScale = 1;
 
   /// The terminal's size, for a surface that shows terminal output verbatim.
-  static double get codeSize => terminalFontStore.size;
+  static double get codeSize => terminalFontStore.chromeStyle.fontSize;
 
   /// A block of code or a log: the terminal face at the UI's mono size.
   static TextStyle codeStyle({

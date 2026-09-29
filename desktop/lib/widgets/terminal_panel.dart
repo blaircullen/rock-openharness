@@ -2109,7 +2109,9 @@ class _TerminalPanelState extends State<TerminalPanel>
           _focusNode.hasFocus &&
           _terminalViewKey.currentState?.isComposing == true,
       child: ColoredBox(
-        color: grid.AppPalette.windowBg,
+        color: terminalThemeStore.value == TerminalThemeChoice.pi
+            ? piTerminalTheme.background
+            : grid.AppPalette.windowBg,
         child: Column(
           children: [
             if (widget.showHeader)

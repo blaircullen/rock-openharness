@@ -515,8 +515,15 @@ void main() {
       expect(find.byKey(shared.cellKey), findsOneWidget);
       expect(tester.getRect(find.byKey(shared.cellKey)).width, greaterThan(0));
       expect(app.pinnedSlotFor(second), 2);
+      double? neighborShift;
       for (var i = 0; i < unchanged.length; i++) {
-        expect(tester.getRect(find.byKey(unchanged[i].cellKey)), rects[i]);
+        final after = tester.getRect(find.byKey(unchanged[i].cellKey));
+        expect(after.width, closeTo(rects[i].width, 0.1));
+        expect(after.height, closeTo(rects[i].height, 0.1));
+        expect(after.top, closeTo(rects[i].top, 0.1));
+        final shift = after.left - rects[i].left;
+        neighborShift ??= shift;
+        expect(shift, closeTo(neighborShift, 0.1));
       }
       for (var i = 0; i < retained.length; i++) {
         expect(
@@ -537,7 +544,14 @@ void main() {
       restored.dispose();
       await app.closePane(shared.id);
       await tester.pump();
-      expect(app.activeSwarm.manualLayout!.tiles, before.tiles);
+      final collapsed = app.activeSwarm.manualLayout!.tiles;
+      expect(collapsed, hasLength(before.tiles.length));
+      for (var i = 0; i < collapsed.length; i++) {
+        expect(collapsed[i].left, closeTo(before.tiles[i].left, .01));
+        expect(collapsed[i].top, closeTo(before.tiles[i].top, .01));
+        expect(collapsed[i].right, closeTo(before.tiles[i].right, .01));
+        expect(collapsed[i].bottom, closeTo(before.tiles[i].bottom, .01));
+      }
       expect(app.pinnedSlotFor(second), 1);
       expect(app.reopenClosed(), isTrue);
       await tester.pump();

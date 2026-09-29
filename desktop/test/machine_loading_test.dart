@@ -442,6 +442,7 @@ void main() {
   );
 
   group('pane colours reach the daemon', () {
+    setUp(() => terminalThemeStore.value = TerminalThemeChoice.matchApp);
     tearDown(() {
       grid.AppTheme.palette.value = HarnessPalette.graphite;
       terminalThemeStore.value = TerminalThemeChoice.matchApp;

@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
-import '../../terminal/terminal_typography.dart';
+import '../../terminal/terminal_font_store.dart';
 
 /// Compact workspace labels stay stable when terminal text is zoomed.
 /// SF Mono on macOS, with the platform's monospace stack elsewhere.
@@ -10,8 +10,9 @@ const workspaceBarFontSize = 13.0;
 
 TextStyle workspaceBarTextStyle({Color? color, bool emphasized = false}) =>
     TextStyle(
-      fontFamily: terminalFontFamily,
-      fontFamilyFallback: terminalFontFallback,
+      fontFamily: TerminalFontChoice.upstreamDefaultForPlatform.fontFamily,
+      fontFamilyFallback:
+          TerminalFontChoice.upstreamDefaultForPlatform.fontFamilyFallback,
       fontSize: workspaceBarFontSize,
       fontWeight: emphasized ? FontWeight.bold : FontWeight.normal,
       height: 1.2,

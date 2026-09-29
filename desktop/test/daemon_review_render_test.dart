@@ -36,7 +36,6 @@ import 'package:harness/shared/theme/app_theme.dart' as grid;
 import 'package:harness/shared/theme/workspace_bar_style.dart';
 import 'package:harness/terminal/terminal_text.dart';
 import 'package:harness/terminal/terminal_theme_store.dart';
-import 'package:harness/terminal/terminal_typography.dart';
 import 'package:harness/widgets/daemon_hatch.dart';
 import 'package:harness/widgets/daemon_panel.dart';
 import 'package:harness/widgets/daemon_slot.dart';
@@ -179,8 +178,9 @@ Future<void> _capture(
   final previousTheme = terminalThemeStore.value;
   grid.AppTheme.brightness.value = brightness;
   terminalFontStore.value = TerminalStyle(
-    fontFamily: terminalFontFamily,
-    fontFamilyFallback: terminalFontFallback,
+    fontFamily: TerminalFontChoice.upstreamDefaultForPlatform.fontFamily,
+    fontFamilyFallback:
+        TerminalFontChoice.upstreamDefaultForPlatform.fontFamilyFallback,
     fontSize: 13,
   );
   terminalThemeStore.value = TerminalThemeChoice.matchApp;

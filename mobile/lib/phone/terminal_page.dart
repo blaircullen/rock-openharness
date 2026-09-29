@@ -734,6 +734,11 @@ class _TerminalPageState extends State<TerminalPage>
     _lifecycle =
         WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
     widget.notifier.addListener(_onNotifier);
+    terminalThemeStore.addListener(_onTerminalTheme);
+  }
+
+  void _onTerminalTheme() {
+    if (mounted) setState(() {});
   }
 
   /// Releases the resize hold when this page is parked mid-animation.
@@ -773,6 +778,7 @@ class _TerminalPageState extends State<TerminalPage>
     _barMessage.dispose();
     _scrollback.dispose();
     widget.notifier.removeListener(_onNotifier);
+    terminalThemeStore.removeListener(_onTerminalTheme);
     _daemon?.noteQuestion(
       this,
       machineId: widget.machineId,
@@ -1705,7 +1711,9 @@ class _TerminalPageState extends State<TerminalPage>
     // already took. See [_navigationBar].
     final navigationBar = _navigationBar;
     return Scaffold(
-      backgroundColor: AppPalette.windowBg,
+      backgroundColor: terminalThemeStore.value == TerminalThemeChoice.pi
+          ? piTerminalTheme.background
+          : AppPalette.windowBg,
       // ⚠️ No fab. New agent is the `+` in the header — see the note there.
       // A Scaffold fab floats over the body, and the body here is the
       // terminal: it covered the newest line of output, which on a page

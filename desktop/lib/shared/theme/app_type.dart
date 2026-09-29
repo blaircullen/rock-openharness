@@ -63,9 +63,9 @@ abstract final class AppType {
       : const ['Ubuntu', 'Noto Sans', 'DejaVu Sans', 'sans-serif'];
 
   /// The terminal's face, so mono chrome changes with the terminal font.
-  static String get monoFamily => terminalFontStore.value.fontFamily;
+  static String get monoFamily => terminalFontStore.chromeStyle.fontFamily;
   static List<String> get monoFallback =>
-      terminalFontStore.value.fontFamilyFallback;
+      terminalFontStore.chromeStyle.fontFamilyFallback;
 
   /// Tracking for the sans face at [size], after Apple's SF Pro table: SF Pro
   /// is optically sized, and Flutter asks CoreText for one static face, so

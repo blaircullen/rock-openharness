@@ -1,12 +1,11 @@
 import 'package:flutter/widgets.dart';
 
 import 'terminal_font_store.dart';
-import 'terminal_typography.dart';
 export 'terminal_font_store.dart';
 export 'terminal_typography.dart' show terminalFontSize;
 
-/// The selected terminal face and size, also used by the welcome page and
-/// shortcut browser. Other app controls use the roles in AppType.
+/// Typography for terminal-styled chrome. A fresh fork keeps these controls
+/// compact; the terminal renderer uses [terminalFontStore.value] directly.
 TextStyle terminalTextStyle({
   Color? color,
   FontWeight? fontWeight,
@@ -15,9 +14,9 @@ TextStyle terminalTextStyle({
   double? letterSpacing,
   List<FontFeature>? fontFeatures,
 }) => TextStyle(
-  fontFamily: terminalFontStore.value.fontFamily,
-  fontFamilyFallback: terminalFontStore.value.fontFamilyFallback,
-  fontSize: terminalFontStore.size,
+  fontFamily: terminalFontStore.chromeStyle.fontFamily,
+  fontFamilyFallback: terminalFontStore.chromeStyle.fontFamilyFallback,
+  fontSize: terminalFontStore.chromeStyle.fontSize,
   color: color,
   fontWeight: fontWeight,
   fontStyle: fontStyle,
@@ -26,8 +25,8 @@ TextStyle terminalTextStyle({
   fontFeatures: fontFeatures,
 );
 
-/// The renderer's exact font and line metrics, without inherited UI tracking.
-TextStyle terminalContentStyle({Color? color}) => terminalFontStore.value
+/// Cell-aligned chrome metrics, without inherited UI tracking.
+TextStyle terminalContentStyle({Color? color}) => terminalFontStore.chromeStyle
     .toTextStyle(color: color)
     .copyWith(letterSpacing: 0, wordSpacing: 0);
 
@@ -58,6 +57,7 @@ class TerminalFontScope extends InheritedNotifier<TerminalFontStore> {
 /// Scale control geometry with the font, without scaling the text a second time.
 double terminalTextScaleOf(BuildContext context) {
   TerminalFontScope.watch(context);
-  return MediaQuery.textScalerOf(context).scale(terminalFontStore.size) /
-      terminalFontSize;
+  return MediaQuery.textScalerOf(context)
+          .scale(terminalFontStore.chromeStyle.fontSize) /
+      13.0;
 }

@@ -73,10 +73,13 @@ void main() {
     },
   );
 
-  testWidgets('a window with the room does not scroll', (tester) async {
-    await _pump(tester, 6, const Size(1750, 900));
-    expect(hasScrollableContent(tester), isFalse);
-  });
+  testWidgets(
+    'larger fork terminal cells scroll instead of clipping six tiles',
+    (tester) async {
+      await _pump(tester, 6, const Size(1750, 900));
+      expect(hasScrollableContent(tester), isTrue);
+    },
+  );
 
   testWidgets('four tiles keep the shape they were tuned to', (tester) async {
     // Four panes keep equal quadrants as the defaults on either side change.

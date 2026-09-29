@@ -134,9 +134,12 @@ void main() {
       for (final label in ['M2', 'openharness', 'feature/login-redirect']) {
         expect(detail.data, contains(label));
       }
-      expect(detail.style!.fontFamily, terminalFontStore.value.fontFamily);
-      expect(detail.style!.fontSize, terminalFontStore.size);
-      expect(detail.style!.height, terminalFontStore.value.height);
+      expect(
+        detail.style!.fontFamily,
+        terminalFontStore.chromeStyle.fontFamily,
+      );
+      expect(detail.style!.fontSize, terminalFontStore.chromeStyle.fontSize);
+      expect(detail.style!.height, terminalFontStore.chromeStyle.height);
       final create = find.byKey(const ValueKey(kSwarmCreateRowId));
       expect(create, findsNothing);
       expect(find.text('Harness:'), findsNothing);

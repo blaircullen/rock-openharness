@@ -280,6 +280,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       final appearance = appearancePrefsStore.value;
       final font = terminalFontStore.value;
+      final zoomStart = font.copyWith(fontSize: 13);
       final scheme = terminalThemeStore.value;
       final palette = grid.AppTheme.palette.value;
       addTearDown(() {
@@ -290,6 +291,9 @@ void main() {
       });
       appearancePrefsStore.value = const AppearancePrefs();
       terminalThemeStore.value = TerminalThemeChoice.matchApp;
+      // This test measures a 13→15 zoom step. The fork's fresh terminal
+      // starts at 16.25, which can leave the same integer column count.
+      terminalFontStore.value = zoomStart;
       final app = createApp()..status = AppStatus.authenticated;
       addTearDown(app.dispose);
       final input = <TerminalBinaryFrame>[];
@@ -373,12 +377,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('customize-terminal')));
       await tester.pumpAndSettle();
       terminalThemeStore.value = TerminalThemeChoice.tango;
-      terminalFontStore.value = font.copyWith(fontSize: font.fontSize + 2);
+      terminalFontStore.value = zoomStart.copyWith(
+        fontSize: zoomStart.fontSize + 2,
+      );
       await tester.pumpAndSettle();
       for (var i = 0; i < sessions.length; i++) {
         expect(tester.state(views[i]), same(states[i]));
         expect(states[i].widget.theme, same(tangoTerminalTheme));
-        expect(states[i].widget.textStyle.fontSize, font.fontSize + 2);
+        expect(states[i].widget.textStyle.fontSize, zoomStart.fontSize + 2);
         expect(
           states[i].renderTerminal.lineHeight,
           greaterThan(lineHeights[i]),

@@ -95,7 +95,12 @@ void main() {
           } else {
             expect(ramp, contains(style.fontSize), reason: text);
             expect(
-              [grid.AppType.sansFamily, grid.AppType.monoFamily],
+              [
+                grid.AppType.sansFamily,
+                grid.AppType.monoFamily,
+                terminalFontStore.value.fontFamily,
+                TerminalFontChoice.upstreamDefaultForPlatform.fontFamily,
+              ],
               contains(style.fontFamily),
               reason: text,
             );

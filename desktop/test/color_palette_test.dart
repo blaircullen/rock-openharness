@@ -148,10 +148,7 @@ void main() {
     for (final palette in [HarnessPalette.paper, HarnessPalette.mist]) {
       expect(palette.isDark, isFalse, reason: palette.name);
       expect(palette.nativeColors['dark'], 0, reason: palette.name);
-      final terminal = terminalThemeFor(
-        palette,
-        TerminalThemeChoice.matchApp,
-      );
+      final terminal = terminalThemeFor(palette, TerminalThemeChoice.matchApp);
       expect(terminal.foreground, palette.foreground);
       // The light ramp, not the dark one's pale yellow and white.
       expect(terminal.yellow, lightTerminalTheme.yellow);
@@ -164,11 +161,22 @@ void main() {
 
       // Every ANSI slot is somebody's output text on this ground.
       for (final slot in [
-        terminal.black, terminal.red, terminal.green, terminal.yellow,
-        terminal.blue, terminal.magenta, terminal.cyan, terminal.white,
-        terminal.brightBlack, terminal.brightRed, terminal.brightGreen,
-        terminal.brightYellow, terminal.brightBlue, terminal.brightMagenta,
-        terminal.brightCyan, terminal.brightWhite,
+        terminal.black,
+        terminal.red,
+        terminal.green,
+        terminal.yellow,
+        terminal.blue,
+        terminal.magenta,
+        terminal.cyan,
+        terminal.white,
+        terminal.brightBlack,
+        terminal.brightRed,
+        terminal.brightGreen,
+        terminal.brightYellow,
+        terminal.brightBlue,
+        terminal.brightMagenta,
+        terminal.brightCyan,
+        terminal.brightWhite,
       ]) {
         expect(
           contrast(slot, palette.background),
@@ -202,8 +210,10 @@ void main() {
     grid.AppTheme.brightness.value = Brightness.dark;
     expect(HarnessPalette.graphite.nativeColors['dark'], 1);
     expect(
-      terminalThemeFor(HarnessPalette.graphite, TerminalThemeChoice.matchApp)
-          .yellow,
+      terminalThemeFor(
+        HarnessPalette.graphite,
+        TerminalThemeChoice.matchApp,
+      ).yellow,
       darkTerminalTheme.yellow,
     );
   });
@@ -234,9 +244,7 @@ void main() {
       await tester.ensureVisible(find.byKey(const ValueKey('palette-forest')));
       expect(
         tester
-            .getSemantics(
-              find.bySemanticsLabel('Forest palette'),
-            )
+            .getSemantics(find.bySemanticsLabel('Forest palette'))
             .getSemanticsData()
             .hasAction(SemanticsAction.tap),
         isTrue,
@@ -252,6 +260,9 @@ void main() {
   testWidgets(
     'palette changes preserve the live terminal and update native colors',
     (tester) async {
+      final previousTheme = terminalThemeStore.value;
+      terminalThemeStore.value = TerminalThemeChoice.matchApp;
+      addTearDown(() => terminalThemeStore.value = previousTheme);
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1280, 800);
       addTearDown(tester.view.resetDevicePixelRatio);

@@ -314,12 +314,17 @@ void main() {
   testWidgets('the tile renders a header and, under test, the URL in words', (
     tester,
   ) async {
+    // Two 40-column terminals need a wider test window at the fork's 16.25pt
+    // default; otherwise the viewer close control sits beyond the viewport.
     final app = createApp();
     addTearDown(app.dispose);
     app.stateOf('m')!.nodeOnline = true;
     final input = <TerminalBinaryFrame>[];
     app.adoptSessionForTest(terminal('a0', input));
     await mount(tester, app);
+    tester.view.physicalSize = const Size(1600, 900);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pump();
     await _synced(app, 'a0', viewerUrl: 'http://127.0.0.1:4179/');
     await tester.pump();
     expect(WebPanePanel.webviewAvailable, isFalse);

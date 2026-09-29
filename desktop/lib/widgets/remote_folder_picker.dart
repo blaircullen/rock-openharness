@@ -34,7 +34,8 @@ Future<String?> showRemoteFolderPicker(
             ? theme.copyWith(
                 textTheme: theme.textTheme.apply(
                   fontSizeFactor:
-                      terminalFontStore.size / grid.AppType.monoSize,
+                      terminalFontStore.chromeStyle.fontSize /
+                      grid.AppType.monoSize,
                 ),
               )
             : theme,
@@ -298,7 +299,7 @@ class _RemoteFolderPickerDialogState extends State<_RemoteFolderPickerDialog> {
       36,
       scale.scale(
                 widget.terminal
-                    ? terminalFontStore.size
+                    ? terminalFontStore.chromeStyle.fontSize
                     : grid.AppType.bodySize,
               ) *
               1.35 +
