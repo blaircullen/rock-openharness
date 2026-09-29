@@ -99,6 +99,11 @@ describe('agentFrame', () => {
     expect(restarted.terminal).toMatchObject({ available: false, reason: 'the tmux server restarted since this pane was added' })
     expect(restarted.external).toMatchObject({ available: false, reason: 'TMUX_SERVER_RESTARTED' })
     expect((await agentFrame(session(null), { selectedModel: null, terminalAvailable: true })).external).toBeNull()
+    // Boot clears `active` on every row and no reconcile may touch a borrowed one: its status follows
+    // the verified availability instead of reading offline forever.
+    const inactive = { ...external, active: false }
+    expect((await agentFrame(inactive, { selectedModel: null, terminalAvailable: false, external: { available: true, reason: null } })).status).toBe('active')
+    expect(restarted.status).toBe('offline')
   })
 
   it('masks a malformed ownership claim the same way (fails closed)', async () => {

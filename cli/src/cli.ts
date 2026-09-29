@@ -1935,6 +1935,8 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   const branchNamed = new Set<string>()
   const nameSessionBranches = (): void => {
     for (const session of registry.list()) {
+      // A borrowed pane's folder is the person's, even when it is a Harness worktree: no git writes.
+      if (isExternallyOwned(session)) continue
       const title = sessionDisplayTitle(session)
       if (!title || !session.cwd || branchNamed.has(session.agentId)) continue
       branchNamed.add(session.agentId)

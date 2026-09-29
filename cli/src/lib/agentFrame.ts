@@ -225,7 +225,9 @@ export async function agentFrame(
     userId: '',
     name: projectDisplayName(s),
     title: frameTitle(s),
-    status: s.active ? 'active' : 'offline',
+    // A borrowed row is never reactivated by a reconcile (none may touch it), so its liveness is
+    // its last verified availability, not the registry flag boot clears on every row.
+    status: (external ? externalStatus.available : s.active) ? 'active' : 'offline',
     launch: s.launch ?? { state: 'ready' },
     createdAt: new Date(s.registeredAt).toISOString(),
     updatedAt: new Date(updatedAt).toISOString(),
