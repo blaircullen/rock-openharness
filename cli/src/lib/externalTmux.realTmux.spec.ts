@@ -134,6 +134,23 @@ describe.skipIf(!hasTmux)('borrowed panes on a real, isolated tmux server', () =
     expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).toBe(before)
   })
 
+  it('scrolling a borrowed stream sends nothing: the person\'s copy-mode stays, no keys reach the pane', async () => {
+    const ownership = enrolled.ownership as ExternalTmuxOwnership
+    const opened = await TmuxControlStream.open(myPane, { cols: 100, rows: 30 }, { onData: () => {}, onClose: () => {} },
+      false, { expectServer: { socketPath: ownership.socketPath, serverIdentity: ownership.serverIdentity }, restoreWindowSize: true })
+    expect(opened.state).toBe('succeeded')
+    if (opened.state !== 'succeeded') return
+    tmux('copy-mode', '-t', myPane)
+    expect(tmux('display-message', '-p', '-t', myPane, '#{pane_in_mode}')).toBe('1')
+    const scrolled = await opened.value.scroll('up', 3)
+    expect(scrolled.state).toBe('failed')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(tmux('display-message', '-p', '-t', myPane, '#{pane_in_mode}')).toBe('1')
+    tmux('send-keys', '-X', '-t', myPane, 'cancel')
+    await opened.value.close()
+    expect(alive(myPane)).toBe(true)
+  })
+
   it('a takeover (second stream opens before the first closes) still puts the window sizing back', async () => {
     const ownership = enrolled.ownership as ExternalTmuxOwnership
     const before = tmux('show-options', '-w', '-t', myPane, 'window-size')

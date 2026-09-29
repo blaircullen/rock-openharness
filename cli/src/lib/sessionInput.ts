@@ -700,6 +700,11 @@ export class SessionInputController {
       if (!next.deliveryId?.startsWith('team:')) this.deps.onError(sessionId, 'This harness is no longer available.')
       return
     }
+    // `submit` refuses a borrowed pane before anything is queued; checked again at the point of typing.
+    if (isExternallyOwned(session)) {
+      this.delivery(sessionId, next.deliveryId, 'rejected', 'external_pane')
+      return
+    }
     void this.inject(sessionId, session, next.content, next.deliveryId, next.tabId)
   }
 

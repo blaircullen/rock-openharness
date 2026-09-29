@@ -927,6 +927,26 @@ describe('SessionInputController — external pane gates', () => {
     controller.forget('s1')
   })
 
+  it('a queued message is refused at the point of typing if the row is now a borrowed pane', async () => {
+    let current: RegisteredSession = session()
+    const inject = vi.fn(async () => true)
+    const onDelivery = vi.fn()
+    const controller = new SessionInputController({
+      getSession: () => current,
+      validateRuntime: async () => true, inject, sendKey: async () => true,
+      onError: vi.fn(), onDelivery,
+    })
+    controller.setTurnOpen('s1', true)
+    controller.submit('s1', 'queued prompt', 'delivery-queued')
+    current = externalSession()
+    controller.onTurnEnded('s1')
+    await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      deliveryId: 'delivery-queued', state: 'rejected', reason: 'external_pane',
+    })))
+    expect(inject).not.toHaveBeenCalled()
+    controller.forget('s1')
+  })
+
   it('a managed session still submits normally (sanity)', async () => {
     vi.useFakeTimers()
     const inject = vi.fn(async () => true)

@@ -234,6 +234,7 @@ import {
   fetchManifest, downloadVerified, canary, stage, semverGt, isLocalDevBuild,
   type Poller, type UpdateEntry,
 } from './lib/selfUpdate.js'
+import { ROCK_FORK_BUILD, ROCK_FORK_NAME, forkUpdateRefusal } from './fork.js'
 import { managedNodePath } from './lib/nodeRuntime.js'
 import { ensureHnLauncher, ensureLauncher, ensureManagedGrid, ensureManagedRuntime, startGridPinRecheck } from './lib/runtimeInstall.js'
 import { readdir, stat } from 'fs/promises'
@@ -1258,6 +1259,11 @@ async function updateCommand(force: boolean): Promise<void> {
     console.log('This is a dev/repo build (running from source) — `harness update` is a no-op. Rebuild the bundle instead.')
     process.exit(0)
   }
+  const forkRefusal = forkUpdateRefusal(VERSION, force)
+  if (forkRefusal) {
+    for (const line of forkRefusal) console.log(line)
+    process.exit(0)
+  }
   if (isLocalDevBuild(VERSION) && !force) {
     console.log(`This is a local build (v${VERSION}), installed from a working tree by scripts/install-cli.sh.`)
     console.log('Updating would replace it with a published release and lose whatever it was built to test.')
@@ -1273,7 +1279,7 @@ async function updateCommand(force: boolean): Promise<void> {
   // the published core (`0.1.56-dev.<sha>`), so semverGt is false against the release it was built
   // level with — the check that keeps a release from stomping the build is also the check that would
   // make the deliberate swap a no-op.
-  const replacingLocalBuild = force && isLocalDevBuild(VERSION)
+  const replacingLocalBuild = force && (isLocalDevBuild(VERSION) || ROCK_FORK_BUILD)
   if (!entry || !(semverGt(entry.version, VERSION) || replacingLocalBuild)) {
     console.log(`✓ Already on the latest version (v${VERSION}).`)
     process.exit(0)
@@ -1474,7 +1480,7 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   const installedCli = join(env.ADAPTER_CLI_DIR, 'cli.js')
   let isInstalledCopy = SCRIPT_PATH === installedCli
   try { isInstalledCopy = statSync(SCRIPT_PATH).ino === statSync(installedCli).ino } catch { /* keep path compare */ }
-  if (isInstalledCopy && !env.ADAPTER_UPDATE_DISABLE) {
+  if (!ROCK_FORK_BUILD && isInstalledCopy && !env.ADAPTER_UPDATE_DISABLE) {
     daemonBoot.updater = startSelfUpdater({
       currentVersion: VERSION,
       url: env.ADAPTER_UPDATE_URL,
@@ -1493,7 +1499,9 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     const slotted = env.ADAPTER_UPDATE_SLOT_SEC >= 0 && 60_000 % env.ADAPTER_UPDATE_CHECK_MS === 0
     console.log(`[update] self-update on · v${VERSION} · every ${Math.round(env.ADAPTER_UPDATE_CHECK_MS / 1000)}s`
       + (slotted ? ` at :${String(env.ADAPTER_UPDATE_SLOT_SEC % 60).padStart(2, '0')}` : ''))
-  } else if (!env.ADAPTER_UPDATE_DISABLE) {
+  } else if (ROCK_FORK_BUILD) {
+    console.log(`[update] self-update off · ${ROCK_FORK_NAME} build (v${VERSION}); \`harness update --force\` replaces it with the stock release`)
+} else if (!env.ADAPTER_UPDATE_DISABLE) {
     console.log(`[update] self-update off · running a dev/repo build (v${VERSION}), not the installed copy`)
   }
 
@@ -2137,11 +2145,15 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   // Borrowed tmux panes (externalTmux.ts): default server only, the daemon's own. Status is checked
   // at boot and on every list, enroll and open — never on a timer — and a failed check leaves the
   // row enrolled and unavailable; nothing here recreates, renames or kills a pane.
+  // Bound once the input controllers below exist; an unenroll can arrive before start-up gets there.
+  let forgetBorrowedInput: ((agentId: string) => void) | null = null
   const externalTmux = tmuxBackend ? new ExternalTmuxController({
     registry,
     onChanged: (row) => syncSession(row),
     onRemoved: async (agentId) => {
       await terminalStreams.closeAgentStreams(agentId, 'terminal was removed', EXTERNAL_TERMINAL_UNAVAILABLE)
+      backend.swarmPromptScopes.forget(agentId)
+      forgetBorrowedInput?.(agentId)
       backendRef?.send({ type: 'agent_deleted', payload: { agentId } })
     },
     log: (message) => console.log(message),
@@ -2634,6 +2646,7 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     onInputStatus: event => autonomousDeviceService?.inputStatus(event),
     onForget: id => autonomousDeviceService?.agentGone(id),
   })
+  forgetBorrowedInput = (agentId) => { input.forget(agentId); deviceInput.forget(agentId) }
 
   /**
    * agy only: close a turn whose final `Stop` never came.

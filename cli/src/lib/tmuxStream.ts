@@ -878,6 +878,9 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
   async scroll(direction: 'up' | 'down', lines: number): Promise<TerminalActionResult> {
     if (this.readOnly) return terminalActionNotStarted('VIEW_ONLY')
     if (this.closed) return terminalActionNotStarted('terminal stream is closed')
+    // A borrowed pane runs the person's own program: PageUp/PageDown would be keystrokes into it, and
+    // the copy-mode `cancel` would pull their own tmux client out of copy-mode.
+    if (this.options.expectServer) return terminalActionNotStarted('a borrowed tmux pane is not scrolled by Harness')
     const pages = tuiScrollPageCount(lines)
     if (pages <= 0) return TERMINAL_ACTION_SUCCEEDED
     const now = Date.now()

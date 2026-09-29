@@ -1364,6 +1364,17 @@ describe('TerminalStreamManager', () => {
         expect(externalStream.writes).toHaveLength(0)
       })
 
+      it('never scrolls a borrowed pane: scrolling is PageUp/PageDown into the person\'s program', async () => {
+        agents.set('ext-1', externalAgent())
+        const streamId = await openExt()
+        await manager.handleFrame('web-1', 'terminal_scroll', { streamId, direction: 'up', lines: 3 })
+        expect(externalStream.scrolls).toHaveLength(0)
+        expect(externalStream.closed).toBe(false)
+        const error = sent.findLast((f) => f.type === 'terminal_error')!
+        expect(error.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+        expect(error.payload.streamId).toBe(streamId)
+      })
+
       it('refuses input, resize and scroll once the enrollment is gone, and closes the stream', async () => {
         agents.set('ext-1', externalAgent())
         const streamId = await openExt()

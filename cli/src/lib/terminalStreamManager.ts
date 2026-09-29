@@ -1043,6 +1043,11 @@ export class TerminalStreamManager {
   private async scroll(connId: string, payload: FramePayload): Promise<void> {
     const state = this.streamFor(connId, payload)
     if (!state) return
+    if (state.externalKey) {
+      // Scrolling is PageUp/PageDown into the pty — keystrokes into the person's own program.
+      this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { streamId: state.streamId, message: EXTERNAL_PANE_DETAIL })
+      return
+    }
     const direction = payload.direction
     const lines = Number(payload.lines)
     if ((direction !== 'up' && direction !== 'down') || !Number.isSafeInteger(lines) || lines <= 0) {
