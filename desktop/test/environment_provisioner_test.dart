@@ -173,6 +173,7 @@ void main() {
     var terminalLaunches = 0;
     final calls = <String>[];
     final provisioner = EnvironmentProvisioner(
+      rockForkBuild: false,
       harnessHome: scratch,
       isMacOS: true,
       isLinux: false,
@@ -301,6 +302,7 @@ void main() {
   test('automatic setup installs Harness, then verifies', () async {
     final calls = <String>[];
     final provisioner = EnvironmentProvisioner(
+      rockForkBuild: false,
       harnessHome: scratch,
       isMacOS: true,
       isLinux: false,
@@ -992,6 +994,7 @@ void main() {
     final missing = <String>{'curl'};
     final calls = <String>[];
     final provisioner = EnvironmentProvisioner(
+      rockForkBuild: false,
       harnessHome: scratch,
       isMacOS: false,
       isLinux: true,

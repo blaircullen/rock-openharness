@@ -28,6 +28,7 @@ import '../auth/cli_link.dart';
 import '../auth/cli_login.dart';
 import '../bootstrap/environment_provisioner.dart';
 import '../core/viewer_mode.dart';
+import '../core/fork_build.dart';
 import '../core/config.dart';
 import '../core/agent_git_context.dart';
 import '../core/agent_names.dart';
@@ -3037,6 +3038,7 @@ class AppNotifier extends ChangeNotifier {
       // serve a computer that runs the harness CLI. The updater is not merely useless there — it
       // throws on an architecture it has no channel for (`ios_arm64`), from inside bootstrap.
       if (viewer == null) {
+        logRockForkBuild();
         _startUpdateChecking();
         final environmentReady = await _prepareEnvironment();
         if (!environmentReady) return;

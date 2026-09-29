@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../core/runtime_architecture.dart';
 import '../core/runtime_platform.dart';
 import '../core/app_version.dart';
+import '../core/fork_build.dart';
 
 /// Published by `scripts/upload-desktop.sh` (`make upload-desktop`) — see
 /// `RELEASE.md` for the full publish-side design this mirrors.
@@ -186,7 +187,8 @@ class DesktopUpdater {
   bool get canCheck => !kIsWeb && _enabled && _releaseMode;
 
   DesktopUpdater({
-    this._enabled = true,
+    // A fork build never follows the stock release manifest (core/fork_build.dart).
+    this._enabled = !kRockForkBuild,
     Dio? dio,
     Future<void> Function(String command)? launchDetached,
     // Defaults to the real manifest (or the --dart-define build-time override — see RELEASE.md's

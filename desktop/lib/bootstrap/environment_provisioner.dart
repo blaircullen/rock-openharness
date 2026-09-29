@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/fork_build.dart';
 import '../core/harness_cli_runner.dart';
 
 /// The CLI-only installer contract for callers that already own host setup.
@@ -153,7 +154,9 @@ class EnvironmentPlanItem {
     step: EnvironmentStep.harness,
     title: 'Managed Node 20+ & Harness CLI',
     detail: '~/.harness only',
-    command: kHarnessDesktopInstallCommand,
+    command: kRockForkBuild
+        ? kRockForkCliInstallHint
+        : kHarnessDesktopInstallCommand,
   );
 }
 
@@ -346,6 +349,8 @@ class EnvironmentProvisioner {
   final Map<String, String> _platformEnvironment;
   final Duration probeTimeout;
 
+  final bool rockForkBuild;
+
   EnvironmentProvisioner({
     Directory? harnessHome,
     ProcessRunner? run,
@@ -356,6 +361,8 @@ class EnvironmentProvisioner {
     bool? isWindows,
     Map<String, String>? platformEnvironment,
     this.probeTimeout = const Duration(seconds: 10),
+    // Tests that exercise the stock installer pass false (core/fork_build.dart).
+    this.rockForkBuild = kRockForkBuild,
   }) : harnessHome = harnessHome ?? Directory(_defaultHarnessHome()),
        _run = run ?? _defaultRun,
        _start = start ?? (run == null ? _defaultStart : null),
@@ -1275,6 +1282,10 @@ fi''';
   }
 
   Future<bool> _hasHarness() async {
+    // A fork CLI installed from the checkout may run on the developer's own
+    // Node (install-cli.sh), not the managed one; that is a working CLI, and
+    // treating it as missing is what would send the stock installer over it.
+    if (rockForkBuild && await _rockForkCliRuns()) return true;
     final currentNode = File('${harnessHome.path}/runtime/current-node');
     if (!await currentNode.exists()) return false;
     final nodePath = (await currentNode.readAsString()).trim();
@@ -1305,12 +1316,35 @@ fi''';
     }
   }
 
+  Future<bool> _rockForkCliRuns() async {
+    try {
+      if (!await File('${harnessHome.path}/cli/cli.js').exists()) return false;
+      final version = await HarnessCliRunner(
+        harnessHome: harnessHome,
+        runProcess: _probeHarnessCommand,
+      ).run(['version']);
+      return version.exitCode == 0;
+    } on ProcessException {
+      return false;
+    } on StateError {
+      return false;
+    }
+  }
+
   Future<void> _ensureHarness(void Function(String line) onOutput) async {
     final runner = HarnessCliRunner(
       harnessHome: harnessHome,
       runProcess: _probeHarnessCommand,
     );
     if (await _hasHarness()) return;
+    // The installer below is the stock release's: over a fork CLI it is a
+    // silent downgrade to upstream. A fork build never runs it.
+    if (rockForkBuild) {
+      throw StateError(
+        '$kRockForkName does not install the stock Harness CLI into '
+        '~/.harness/cli. Install the fork CLI instead: $kRockForkCliInstallHint',
+      );
+    }
     // No interpreter is named here. install.sh provisions the same
     // checksum-verified Node under `~/.harness/runtime` when the computer has
     // none, records it in `current-node`, and bakes its absolute path into the
@@ -1701,7 +1735,9 @@ fi
           ? '$kHarnessHostSetupCommand && tmux -V'
           : 'sudo apt-get install -y tmux && tmux -V',
     EnvironmentStep.harness =>
-      '$kHarnessDesktopInstallCommand && harness version',
+      rockForkBuild
+          ? kRockForkCliInstallHint
+          : '$kHarnessDesktopInstallCommand && harness version',
   };
 
   String _resultText(ProcessResult result) {

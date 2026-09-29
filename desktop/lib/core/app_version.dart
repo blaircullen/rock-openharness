@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'fork_build.dart';
 import 'runtime_platform.dart';
 
 /// The version of the build currently running.
@@ -28,12 +29,14 @@ Future<String> runningAppVersion({
       // this line and paint the em dash the FutureBuilder falls back to, while
       // the same widget showed a version on macOS (which skips this branch).
       final raw = versionFile.readAsStringSync().trim();
-      if (raw.isNotEmpty) return raw;
+      if (raw.isNotEmpty) return rockForkVersion(raw);
     } catch (_) {
       // Not a packaged build (no version.txt) — fall through below.
     }
   }
-  return packageInfoVersion != null
-      ? packageInfoVersion()
-      : (await PackageInfo.fromPlatform()).version;
+  return rockForkVersion(
+    packageInfoVersion != null
+        ? await packageInfoVersion()
+        : (await PackageInfo.fromPlatform()).version,
+  );
 }
