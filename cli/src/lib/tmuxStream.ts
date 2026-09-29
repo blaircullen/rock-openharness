@@ -433,6 +433,15 @@ export interface TmuxStreamOpenOptions {
   restoreWindowSize?: boolean
 }
 
+/**
+ * A borrowed window's own `window-size`, as found before Harness first resized it. Shared by every
+ * stream on that window: a takeover opens the new stream before the old one closes, and a second
+ * stream that read the value itself would read the `manual` the first one left — and put THAT back
+ * last. So the first stream to resize records, later ones count themselves in, and the last to close
+ * restores. Keyed by server incarnation and window id.
+ */
+const borrowedWindowSizes = new Map<string, { value: string | null; holders: number }>()
+
 /** Server identity, socket, pane, window pane count — one line, read through the control client. */
 const SERVER_PROBE_FORMAT = '#{pid}:#{start_time}|#{socket_path}|#{pane_id}|#{window_panes}'
 
@@ -467,8 +476,8 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
   // Set by scroll() when it enters tmux copy-mode. Copy-mode swallows keyboard input for its own
   // navigation, so writeRaw() must exit it before the next real keystroke — see writeRaw()'s doc.
   private inCopyMode = false
-  /** The window-level `window-size` found before this stream first resized (null: not set there). */
-  private originalWindowSize: { windowId: string; value: string | null } | undefined
+  /** The borrowed window this stream holds in `borrowedWindowSizes`, once it has resized it. */
+  private borrowedWindow: { key: string; windowId: string } | undefined
 
   private constructor(
     paneId: string,
@@ -800,12 +809,20 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       if (meta.windowWidth === size.cols && meta.windowHeight === size.rows) {
         return TERMINAL_ACTION_SUCCEEDED
       }
-      if (this.options.restoreWindowSize && this.originalWindowSize === undefined) {
-        const found = await this.runControlCommand(`show-options -w -v -t ${meta.windowId} window-size`)
-        // Unreadable means it cannot be put back, so the borrowed window is not resized at all.
-        if (!found.ok) return terminalActionNotStarted('tmux window size could not be read')
-        const value = found.stdout.toString('utf8').trim()
-        this.originalWindowSize = { windowId: meta.windowId, value: /^[a-z]{1,16}$/.test(value) ? value : null }
+      if (this.options.restoreWindowSize && this.borrowedWindow === undefined) {
+        const key = `${this.options.expectServer?.serverIdentity ?? ''}\u0000${meta.windowId}`
+        if (!borrowedWindowSizes.has(key)) {
+          const found = await this.runControlCommand(`show-options -w -v -t ${meta.windowId} window-size`)
+          // Unreadable means it cannot be put back, so the borrowed window is not resized at all.
+          if (!found.ok) return terminalActionNotStarted('tmux window size could not be read')
+          const value = found.stdout.toString('utf8').trim()
+          // Another stream may have recorded it while this read was out; its record is the original.
+          if (!borrowedWindowSizes.has(key)) {
+            borrowedWindowSizes.set(key, { value: /^[a-z]{1,16}$/.test(value) ? value : null, holders: 0 })
+          }
+        }
+        borrowedWindowSizes.get(key)!.holders++
+        this.borrowedWindow = { key, windowId: meta.windowId }
       }
       const result = await this.runControlCommand(
         `resize-window -t ${meta.windowId} -x ${size.cols} -y ${size.rows}`,
@@ -835,13 +852,18 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
     // makes agent switching shrink and immediately re-expand the pane; TUIs
     // such as Grok preserve those intermediate repaint fragments in the live
     // screen. The next controller will resize only if its grid truly differs.
+    // A borrowed window gets its own sizing back when its LAST stream closes — queued ahead of the
+    // detach, so tmux runs it first. A dead control client means a dead server: nothing to put back.
+    const borrowed = this.borrowedWindow
+    this.borrowedWindow = undefined
+    const held = borrowed ? borrowedWindowSizes.get(borrowed.key) : undefined
+    const restoreNow = !!held && --held.holders <= 0
+    if (restoreNow) borrowedWindowSizes.delete(borrowed!.key)
     if (this.child.stdin.writable) {
-      // A borrowed window gets its own sizing back — queued ahead of the detach, so tmux runs it first.
-      const original = this.originalWindowSize
-      if (original) {
-        const restore = original.value
-          ? `set-option -w -t ${original.windowId} window-size ${original.value}`
-          : `set-option -w -u -t ${original.windowId} window-size`
+      if (restoreNow) {
+        const restore = held!.value
+          ? `set-option -w -t ${borrowed!.windowId} window-size ${held!.value}`
+          : `set-option -w -u -t ${borrowed!.windowId} window-size`
         try { this.child.stdin.write(`${restore}\n`) } catch { /* ignore */ }
       }
       try { this.child.stdin.write('detach-client\n') } catch { /* ignore */ }

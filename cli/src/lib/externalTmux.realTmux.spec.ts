@@ -134,6 +134,23 @@ describe.skipIf(!hasTmux)('borrowed panes on a real, isolated tmux server', () =
     expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).toBe(before)
   })
 
+  it('a takeover (second stream opens before the first closes) still puts the window sizing back', async () => {
+    const ownership = enrolled.ownership as ExternalTmuxOwnership
+    const before = tmux('show-options', '-w', '-t', myPane, 'window-size')
+    const options = { expectServer: { socketPath: ownership.socketPath, serverIdentity: ownership.serverIdentity }, restoreWindowSize: true }
+    const sink = { onData: () => {}, onClose: () => {} }
+    const first = await TmuxControlStream.open(myPane, { cols: 101, rows: 31 }, sink, false, options)
+    const second = await TmuxControlStream.open(myPane, { cols: 111, rows: 33 }, sink, false, options)
+    expect(first.state).toBe('succeeded')
+    expect(second.state).toBe('succeeded')
+    if (first.state !== 'succeeded' || second.state !== 'succeeded') return
+    await first.value.close()
+    expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).not.toBe(before)
+    await second.value.close()
+    expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).toBe(before)
+    expect(alive(myPane)).toBe(true)
+  })
+
   it('unenroll forgets the row and leaves the pane running', async () => {
     const removed = await controller.unenroll(enrolled.agentId)
     expect(removed.ok).toBe(true)
