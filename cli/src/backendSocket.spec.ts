@@ -3254,3 +3254,76 @@ describe('external pane dispatch gates', () => {
     await socket.stop()
   })
 })
+
+describe('borrowed tmux pane RPCs', () => {
+  beforeEach(() => { wsMock.instances.length = 0 })
+  afterEach(() => {
+    wsMock.instances.length = 0
+    vi.restoreAllMocks()
+  })
+
+  function controller() {
+    return {
+      list: vi.fn(async () => ({ ok: true as const, server: { socketPath: '/tmp/tmux-501/default', serverIdentity: '10:20' }, panes: [] })),
+      enroll: vi.fn(async () => ({ ok: false as const, error: 'TMUX_PANE_MANAGED', detail: 'already a Harness terminal' })),
+      unenroll: vi.fn(async () => ({ ok: true as const })),
+      status: vi.fn(() => ({ available: false, reason: 'NOT_CHECKED' as const })),
+      rows: vi.fn(() => []),
+    }
+  }
+
+  it('serves a local client, passing only the pane and incarnation — never a socket — to the controller', async () => {
+    const socket = new BackendSocket('token')
+    const external = controller()
+    socket.externalTmux = external
+    const frames: Array<Record<string, unknown>> = []
+    socket.registerLocalClient('local:tmux', { sendFrame: (frame) => { frames.push(frame); return true }, sendBinary: () => true })
+    socket.handleLocalFrame('local:tmux', { type: 'tmux_panes_list', payload: { requestId: 'l1', socketPath: '/tmp/evil' } })
+    await vi.waitFor(() => expect(frames).toContainEqual({
+      type: 'tmux_panes_list_result',
+      payload: { requestId: 'l1', server: { socketPath: '/tmp/tmux-501/default', serverIdentity: '10:20' }, panes: [] },
+    }))
+    expect(external.list).toHaveBeenCalledWith()
+    socket.handleLocalFrame('local:tmux', { type: 'tmux_pane_enroll', payload: { requestId: 'e1', paneId: '%3', serverIdentity: '10:20', socketPath: '/tmp/evil' } })
+    await vi.waitFor(() => expect(frames).toContainEqual({
+      type: 'tmux_pane_enroll_result', payload: { requestId: 'e1', error: 'TMUX_PANE_MANAGED', detail: 'already a Harness terminal' },
+    }))
+    expect(external.enroll).toHaveBeenCalledWith('%3', '10:20')
+    socket.handleLocalFrame('local:tmux', { type: 'tmux_pane_unenroll', payload: { requestId: 'u1', agentId: 'borrowed-1' } })
+    await vi.waitFor(() => expect(frames).toContainEqual({ type: 'tmux_pane_unenroll_result', payload: { requestId: 'u1', removed: true } }))
+    expect(external.unenroll).toHaveBeenCalledWith('borrowed-1')
+    await socket.unregisterLocalClient('local:tmux')
+    await socket.stop()
+  })
+
+  it('refuses a paired device before touching tmux', async () => {
+    const socket = new BackendSocket('token')
+    const external = controller()
+    socket.externalTmux = external
+    socket.connect()
+    const ws = wsMock.instances[0]
+    ws.open()
+    vi.spyOn(socket.e2ee, 'unwrapDown').mockReturnValue({ type: 'tmux_pane_enroll', payload: { requestId: 'e1', paneId: '%3', serverIdentity: '10:20' } })
+    vi.spyOn(socket.e2ee, 'hasSession').mockReturnValue(true)
+    vi.spyOn(socket.e2ee, 'sessionRole').mockReturnValue('device')
+    const wrap = vi.spyOn(socket.e2ee, 'wrapRpcReply').mockReturnValue({
+      type: 'tmux_pane_enroll_result', payload: { __e2e: { v: 1, k: 's', n: 1, ct: 'ciphertext' } },
+    })
+    ws.message({ t: 'down', connId: 'dial', frame: { type: 'tmux_pane_enroll', payload: { __e2e: { v: 1, k: 's', n: 1, ct: 'ciphertext' } } } })
+    await vi.waitFor(() => expect(wrap).toHaveBeenCalledWith('dial', 'tmux_pane_enroll_result', 'e1', { error: 'OWNER_REQUIRED' }))
+    expect(external.enroll).not.toHaveBeenCalled()
+    await socket.stop()
+  })
+
+  it('says tmux is unavailable on a daemon without it', async () => {
+    const socket = new BackendSocket('token')
+    const frames: Array<Record<string, unknown>> = []
+    socket.registerLocalClient('local:tmux', { sendFrame: (frame) => { frames.push(frame); return true }, sendBinary: () => true })
+    socket.handleLocalFrame('local:tmux', { type: 'tmux_panes_list', payload: { requestId: 'l1' } })
+    await vi.waitFor(() => expect(frames).toContainEqual({
+      type: 'tmux_panes_list_result', payload: { requestId: 'l1', error: 'TMUX_UNAVAILABLE', detail: 'tmux is not available on this machine' },
+    }))
+    await socket.unregisterLocalClient('local:tmux')
+    await socket.stop()
+  })
+})

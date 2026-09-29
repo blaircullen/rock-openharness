@@ -31,6 +31,7 @@ import { VERSION } from './version.js'
 import { registry, projectDisplayName, type RegisteredSession } from './lib/registry.js'
 import { AgentStopError } from './lib/stopAgentService.js'
 import { EXTERNAL_PANE, EXTERNAL_PANE_DETAIL, ExternalPaneError, isExternallyOwned } from './lib/agentOwnership.js'
+import type { ExternalTmuxController } from './lib/externalTmux.js'
 import { isHiddenBuiltin } from './dsh/builtins.js'
 import { ENGINES, PROCESS_ENGINES, isTerminalEngine, type AgentEngine, type ProcessEngine } from './engines/types.js'
 import { listDir } from './lib/fsBrowse.js'
@@ -710,6 +711,12 @@ export class BackendSocket {
       { ok: true; session: RegisteredSession; level: 'native' | 'handoff' }
       | { ok: false; error: string; detail?: string }
     >) | null = null
+  /**
+   * Borrowed tmux panes on THIS machine's default server (lib/externalTmux.ts): list, enroll,
+   * unenroll, and each enrolled row's last verified status for its frame. Null on a daemon without
+   * tmux. The socket is the daemon's own; no request can name one.
+   */
+  externalTmux: Pick<ExternalTmuxController, 'list' | 'enroll' | 'unenroll' | 'status' | 'rows'> | null = null
   /** Called when the web/device sends chat input to an agent terminal. */
   onMessage: ((sessionId: string, content: string, deliveryId?: string) => void) | null = null
   /** Best-effort terminal-native title sync after a user renames an agent. */
@@ -1911,6 +1918,30 @@ export class BackendSocket {
       return
     }
 
+    // Borrowed tmux panes (lib/externalTmux.ts). Owner-only, all three: the listing names every
+    // session, command and folder on the machine's tmux server, and enrollment opens one to typing.
+    if (type === 'tmux_panes_list' || type === 'tmux_pane_enroll' || type === 'tmux_pane_unenroll') {
+      if (!local && this.e2ee.sessionRole(connId) !== 'web') { reply(type, requestId, { error: 'OWNER_REQUIRED' }); return }
+      const external = this.externalTmux
+      if (!external) { reply(type, requestId, { error: 'TMUX_UNAVAILABLE', detail: 'tmux is not available on this machine' }); return }
+      if (type === 'tmux_panes_list') {
+        const listed = await external.list()
+        reply(type, requestId, listed.ok
+          ? { server: listed.server, panes: listed.panes }
+          : { error: listed.error, detail: listed.detail })
+        return
+      }
+      if (type === 'tmux_pane_enroll') {
+        const enrolled = await external.enroll(payload.paneId, payload.serverIdentity)
+        if (!enrolled.ok) { reply(type, requestId, { error: enrolled.error, detail: enrolled.detail }); return }
+        reply(type, requestId, { agent: await this.toProject(enrolled.agent), alreadyEnrolled: enrolled.alreadyEnrolled })
+        return
+      }
+      const removed = await external.unenroll(payload.agentId)
+      reply(type, requestId, removed.ok ? { removed: true } : { error: removed.error, detail: removed.detail })
+      return
+    }
+
     if (type === 'api_connections') {
       if (!local && this.e2ee.sessionRole(connId) !== 'web') { reply(type, requestId, { error: 'OWNER_REQUIRED' }); return }
       if (payload.action === 'models') {
@@ -2046,6 +2077,11 @@ export class BackendSocket {
 
         case 'agents_list': {
           const projects = await Promise.all(registry.advertised().map((s) => this.toProject(s)))
+          // Borrowed panes are listed whether or not they can be opened right now — a person added
+          // each one, and one that went away says why instead of vanishing. Never to the dial.
+          if (this.e2ee.sessionRole(connId) !== 'device') {
+            projects.push(...await Promise.all(registry.externalRows().map((s) => this.toProject(s))))
+          }
           // Older clients/devices keep their live-only contract. The desktop picker
           // explicitly asks for stopped work and receives no stale terminal routes.
           if (payload.includeStopped === true && this.e2ee.sessionRole(connId) !== 'device') {
@@ -3266,6 +3302,7 @@ export class BackendSocket {
       selectedModel: this.runtimeProfileProvider?.(s) ?? null,
       terminalAvailable: registry.terminalAvailable(s.agentId),
       dsh: this.dshFrameProvider?.(s) ?? null,
+      external: isExternallyOwned(s) ? this.externalTmux?.status(s.agentId) ?? null : null,
     })
   }
 }

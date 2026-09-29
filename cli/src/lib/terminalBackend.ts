@@ -41,6 +41,8 @@ export interface TerminalBackend<Ref extends TerminalRuntimeRef = TerminalRuntim
     size: TerminalStreamSize,
     sink: TerminalStreamSink,
     readOnly?: boolean,
+    /** Only for a borrowed tmux pane: the server it must be on, and the window sizing to put back. */
+    options?: { expectServer?: { socketPath: string; serverIdentity: string }; restoreWindowSize?: boolean },
   ): Promise<TerminalReadResult<TerminalStreamHandle<Ref>>>
 
   /** Restart's two primitives. Optional per backend — only tmux (a real multiplexer pane) supports an

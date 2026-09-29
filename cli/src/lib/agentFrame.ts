@@ -30,6 +30,7 @@ import { gridAnnotation, type GridAnnotation } from './gridModels.js'
 import { projectDisplayName, sessionDisplayTitle, type RegisteredSession } from './registry.js'
 import { engineCanFork } from './forkAgent.js'
 import { isExternallyOwned } from './agentOwnership.js'
+import { externalReasonText, type ExternalPaneStatus } from './externalTmux.js'
 import { resumeMode, type ResumeMode } from './resumeCapability.js'
 import type { DshVerdict } from '../dsh/verdict.js'
 
@@ -75,7 +76,14 @@ export type AgentFrame = {
   tokenUsage: AgentTokenUsage | null
   outputStats: (AgentOutputStats & { updatedAt: string }) | null
   tmuxPane: string | null
-  terminal: { available: boolean; primary: string; runtimes: RegisteredSession['runtimes'] }
+  terminal: { available: boolean; primary: string; runtimes: RegisteredSession['runtimes']; reason?: string }
+  /**
+   * A tmux pane Harness borrowed rather than created (externalTmux.ts), or null for every managed
+   * agent. A client offers such a row Open, Close and Remove only — never stop, restart, resume,
+   * fork, rename or a model change; the daemon refuses those anyway. `available` repeats
+   * `terminal.available`; `reason` is the machine-readable why-not.
+   */
+  external: ExternalFrameBlock | null
   engine: RegisteredSession['engine']
   selectedModel: string | null
   grid: GridFrameBlock | null
@@ -120,6 +128,19 @@ export type AgentFrame = {
   namedAgent: string | null
 }
 
+/** What a client is told about a borrowed pane: where it is, and whether it can be opened now. */
+export interface ExternalFrameBlock {
+  kind: 'tmux'
+  // No pane id: a bare `%N` is not a route any client may hold (see the `tmuxPane` masking above).
+  sessionName: string | null
+  windowIndex: number | null
+  paneIndex: number | null
+  windowName: string | null
+  command: string | null
+  available: boolean
+  reason: string | null
+}
+
 /** What the daemon knows about an agent's DSH — looked up by the caller, never here. */
 export interface AgentDshContext {
   /** The harness's CURRENT id — an agent created under a former name (`formerly`) reports the new one. */
@@ -140,6 +161,8 @@ export interface AgentFrameContext {
   tokenUsage?: AgentTokenUsage | null
   /** The DSH companions' state for this agent; absent when the caller has none to give. */
   dsh?: AgentDshContext | null
+  /** A borrowed pane's last verified status (externalTmux.ts); absent means not checked — unavailable. */
+  external?: ExternalPaneStatus | null
 }
 
 /**
@@ -180,7 +203,7 @@ const gitContexts = new SessionGitContextReader()
 
 export async function agentFrame(
   s: RegisteredSession,
-  { selectedModel, terminalAvailable, dsh, tokenUsage }: AgentFrameContext,
+  { selectedModel, terminalAvailable, dsh, tokenUsage, external: externalContext }: AgentFrameContext,
 ): Promise<AgentFrame> {
   const home = agentProject(s.cwd)
   const context = gitContexts.read(JSON.stringify([s.agentId, s.sessionId, s.engine, s.codexHome, s.registeredAt]), async () => {
@@ -195,6 +218,7 @@ export async function agentFrame(
   // fork the managed pane that happens to share it. The frame carries no ownership field, so the route
   // is masked instead — the same "no terminal" shape a stopped agent reports.
   const external = isExternallyOwned(s)
+  const externalStatus: ExternalPaneStatus = externalContext ?? { available: false, reason: 'NOT_CHECKED' }
   return {
     id: s.agentId,
     sessionId: s.sessionId,
@@ -212,9 +236,23 @@ export async function agentFrame(
       ? { totalTokens: tokenUsage.totalTokens, updatedAt: tokenUsage.updatedAt } : null,
     outputStats: tokenUsage?.output ? { ...tokenUsage.output, updatedAt: tokenUsage.updatedAt } : null,
     tmuxPane: external ? null : s.tmuxPane || null,
+    // Still no route for a borrowed row: a client opens it by agentId, and the daemon verifies the
+    // enrollment before any stream exists. `available` is only the last verified answer.
     terminal: external
-      ? { available: false, primary: '', runtimes: [] }
+      ? { available: externalStatus.available, primary: '', runtimes: [], ...(externalStatus.reason ? { reason: externalReasonText(externalStatus.reason) ?? externalStatus.reason } : {}) }
       : { available: terminalAvailable, primary: s.primaryRuntimeKey, runtimes: s.runtimes },
+    external: external && s.ownership?.kind === 'external'
+      ? {
+        kind: 'tmux',
+        sessionName: externalStatus.sessionName ?? null,
+        windowIndex: externalStatus.windowIndex ?? null,
+        paneIndex: externalStatus.paneIndex ?? null,
+        windowName: externalStatus.windowName ?? null,
+        command: externalStatus.command ?? null,
+        available: externalStatus.available,
+        reason: externalStatus.reason,
+      }
+      : null,
     engine: s.engine,
     selectedModel,
     // Where this agent's inference actually goes, so a client can tell which agents a newly picked

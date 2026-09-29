@@ -1200,5 +1200,165 @@ describe('TerminalStreamManager', () => {
       expect(sent.length).toBe(sentBefore)
       expect(binarySent.length).toBe(binarySentBefore)
     })
+
+    describe('an enrolled pane opened through its enrollment', () => {
+      let externalStream: FakeStream
+      type Verify = (session: RegisteredSession) => Promise<{ ok: true } | { ok: false; detail: string }>
+      let openExternal: ReturnType<typeof vi.fn>
+      let verifyExternal: ReturnType<typeof vi.fn<Verify>>
+
+      beforeEach(() => {
+        externalStream = new FakeStream()
+        Object.defineProperty(externalStream, 'runtime', { value: { backend: 'tmux', paneId: '%5' } })
+        openExternal = vi.fn(async () => ({ state: 'succeeded' as const, value: externalStream }))
+        ;(terminals as unknown as { openExternalStream: unknown }).openExternalStream = openExternal
+        verifyExternal = vi.fn<Verify>(async () => ({ ok: true as const }))
+        manager = newManager({ verifyExternal })
+      })
+
+      const openExt = async (connId = 'web-1', requestId = 'open-ext') => {
+        await manager.handleFrame(connId, 'terminal_open', {
+          requestId, protocolVersion: 3, agentId: 'ext-1', cols: 100, rows: 30,
+        })
+        return sent.findLast((f) => f.type === 'terminal_ready' && f.payload.agentId === 'ext-1')?.payload.streamId as string | undefined
+      }
+
+      it('verifies the enrollment first and refuses with the reason when it does not stand', async () => {
+        agents.set('ext-1', externalAgent())
+        verifyExternal.mockResolvedValueOnce({ ok: false, detail: 'the tmux server restarted since this pane was added' })
+        const openManaged = vi.fn()
+        terminals.openStream = openManaged
+        expect(await openExt()).toBeUndefined()
+        const error = sent.findLast((f) => f.type === 'terminal_error')!
+        expect(error.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+        expect(error.payload.message).toBe('the tmux server restarted since this pane was added')
+        expect(openExternal).not.toHaveBeenCalled()
+        expect(openManaged).not.toHaveBeenCalled()
+      })
+
+      it('opens only through openExternalStream, and typing reaches the borrowed pane', async () => {
+        agents.set('ext-1', externalAgent())
+        const openManaged = vi.fn()
+        terminals.openStream = openManaged
+        const streamId = await openExt()
+        expect(streamId).toBeTruthy()
+        expect(verifyExternal).toHaveBeenCalledTimes(1)
+        expect(openExternal).toHaveBeenCalledTimes(1)
+        expect(openManaged).not.toHaveBeenCalled()
+        await manager.handleBinary('web-1', {
+          kind: TerminalBinaryKind.input, streamId: streamId!, seq: 0, compressed: false, bytes: Buffer.from('ls\r'),
+        })
+        expect(Buffer.from(externalStream.writes[0]).toString()).toBe('ls\r')
+      })
+
+      it('never refuses without verifying: a read-only manager does not open a borrowed pane', async () => {
+        agents.set('ext-1', externalAgent())
+        manager = newManager({ verifyExternal, readOnly: true })
+        expect(await openExt()).toBeUndefined()
+        expect(sent.findLast((f) => f.type === 'terminal_error')?.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+        expect(verifyExternal).not.toHaveBeenCalled()
+        expect(openExternal).not.toHaveBeenCalled()
+      })
+
+      it('shares no placement lease with a managed pane that has the same id', async () => {
+        const managedOnSamePane = {
+          ...session('claude', 'managed-5'),
+          runtimes: [{ backend: 'tmux', paneId: '%5' }],
+          primaryRuntimeKey: 'tmux\u0000%5',
+        } as unknown as RegisteredSession
+        agents.set('managed-5', managedOnSamePane)
+        agents.set('ext-1', externalAgent())
+        const managedStream = new FakeStream()
+        Object.defineProperty(managedStream, 'runtime', { value: { backend: 'tmux', paneId: '%5' } })
+        terminals.openStream = vi.fn(async () => ({ state: 'succeeded' as const, value: managedStream }))
+        await manager.handleFrame('web-1', 'terminal_open', {
+          requestId: 'open-managed', protocolVersion: 3, agentId: 'managed-5', cols: 100, rows: 30,
+        })
+        const managedId = sent.find((f) => f.type === 'terminal_ready' && f.payload.agentId === 'managed-5')!.payload.streamId as string
+        const externalId = await openExt('web-2')
+        expect(externalId).toBeTruthy()
+        expect(managedStream.closed).toBe(false)
+        await manager.handleBinary('web-1', {
+          kind: TerminalBinaryKind.input, streamId: managedId, seq: 0, compressed: false, bytes: Buffer.from('m'),
+        })
+        await manager.handleBinary('web-2', {
+          kind: TerminalBinaryKind.input, streamId: externalId!, seq: 0, compressed: false, bytes: Buffer.from('e'),
+        })
+        expect(managedStream.writes.map((w) => Buffer.from(w).toString())).toEqual(['m'])
+        expect(externalStream.writes.map((w) => Buffer.from(w).toString())).toEqual(['e'])
+      })
+
+      it('a second client takes the lease over like any terminal; the first stream closes, the pane does not', async () => {
+        agents.set('ext-1', externalAgent())
+        const first = await openExt('web-1', 'a')
+        const second = new FakeStream()
+        Object.defineProperty(second, 'runtime', { value: { backend: 'tmux', paneId: '%5' } })
+        openExternal.mockResolvedValueOnce({ state: 'succeeded' as const, value: second })
+        const takeover = await openExt('web-2', 'b')
+        expect(takeover).toBeTruthy()
+        expect(takeover).not.toBe(first)
+        expect(externalStream.closed).toBe(true)
+        await manager.handleBinary('web-1', {
+          kind: TerminalBinaryKind.input, streamId: first!, seq: 0, compressed: false, bytes: Buffer.from('late'),
+        })
+        expect(externalStream.writes).toHaveLength(0)
+      })
+
+      it('refuses input, resize and scroll once the enrollment is gone, and closes the stream', async () => {
+        agents.set('ext-1', externalAgent())
+        const streamId = await openExt()
+        agents.delete('ext-1')
+        await manager.handleBinary('web-1', {
+          kind: TerminalBinaryKind.input, streamId: streamId!, seq: 0, compressed: false, bytes: Buffer.from('x'),
+        })
+        await manager.handleFrame('web-1', 'terminal_resize', { streamId, resizeSeq: 1, cols: 140, rows: 50 })
+        await manager.handleFrame('web-1', 'terminal_scroll', { streamId, direction: 'up', lines: 3 })
+        expect(externalStream.writes).toHaveLength(0)
+        expect(externalStream.sizes).toHaveLength(0)
+        expect(externalStream.scrolls).toHaveLength(0)
+        expect(externalStream.closed).toBe(true)
+      })
+
+      it('treats a re-enrollment on a new server incarnation as a different pane', async () => {
+        agents.set('ext-1', externalAgent())
+        const streamId = await openExt()
+        const reenrolled = externalAgent()
+        reenrolled.ownership = { ...(reenrolled.ownership as object), serverIdentity: '999:1' } as RegisteredSession['ownership']
+        agents.set('ext-1', reenrolled)
+        await manager.handleFrame('web-1', 'terminal_resize', { streamId, resizeSeq: 1, cols: 140, rows: 50 })
+        expect(externalStream.sizes).toHaveLength(0)
+        expect(externalStream.closed).toBe(true)
+        expect(sent.findLast((f) => f.type === 'terminal_error')?.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+      })
+
+      it('unenrolled mid-open: the stream never becomes one', async () => {
+        agents.set('ext-1', externalAgent())
+        openExternal.mockImplementationOnce(async () => {
+          agents.delete('ext-1')
+          return { state: 'succeeded' as const, value: externalStream }
+        })
+        expect(await openExt()).toBeUndefined()
+        expect(externalStream.closed).toBe(true)
+        expect(sent.findLast((f) => f.type === 'terminal_error')?.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+      })
+
+      it('reports a backend refusal (server changed under the attach) as unavailable', async () => {
+        agents.set('ext-1', externalAgent())
+        openExternal.mockResolvedValueOnce({ state: 'failed' as const, reason: 'TERMINAL_EXTERNAL_SERVER_CHANGED' })
+        expect(await openExt()).toBeUndefined()
+        const error = sent.findLast((f) => f.type === 'terminal_error')!
+        expect(error.payload.code).toBe('TERMINAL_EXTERNAL_UNAVAILABLE')
+        expect(error.payload.message).toBe('TERMINAL_EXTERNAL_SERVER_CHANGED')
+      })
+
+      it('closeAgentStreams detaches every view of the agent and nothing else', async () => {
+        agents.set('ext-1', externalAgent())
+        const streamId = await openExt()
+        await manager.closeAgentStreams('ext-1', 'terminal was removed', 'TERMINAL_EXTERNAL_UNAVAILABLE')
+        expect(externalStream.closed).toBe(true)
+        expect(sent.some((f) => f.type === 'terminal_closed' && f.payload.streamId === streamId)).toBe(true)
+        expect(stream.closed).toBe(false)
+      })
+    })
   })
 })

@@ -3,7 +3,7 @@ import { unlink } from 'node:fs/promises'
 import { deflateSync } from 'node:zlib'
 import { ENGINES } from '../engines/types.js'
 import type { RegisteredSession } from './registry.js'
-import { EXTERNAL_PANE_DETAIL, EXTERNAL_TERMINAL_UNAVAILABLE, isExternallyOwned } from './agentOwnership.js'
+import { EXTERNAL_PANE_DETAIL, EXTERNAL_TERMINAL_UNAVAILABLE, externalEndpointKey, isExternallyOwned } from './agentOwnership.js'
 import { writeImageToOsClipboard } from './osClipboard.js'
 import { writePasteDropFile, writePasteImageFile } from './pasteDropFiles.js'
 import type { TerminalBackendCoordinator } from './terminalBackendCoordinator.js'
@@ -146,6 +146,15 @@ interface ActiveStream {
   pausedAt: number | null
   pausedMs: number
   pendingUpload: PendingUpload | null
+  /** A borrowed pane's enrollment (externalEndpointKey) this stream was opened for; absent when managed. */
+  externalKey?: string
+}
+
+/** The enrollment a borrowed row names, or null for a managed one. */
+function enrollmentKey(session: RegisteredSession | undefined): string | null {
+  return session && isExternallyOwned(session) && session.ownership?.kind === 'external'
+    ? externalEndpointKey(session.ownership)
+    : null
 }
 
 export interface TerminalStreamManagerDeps {
@@ -173,6 +182,12 @@ export interface TerminalStreamManagerDeps {
    * grid-reads-without-waking issue 03), which is why it lives here, below every client that types.
    */
   onInput?: (agentId: string) => void
+  /**
+   * Whether a borrowed (external) row's pane may be opened right now — externalTmux.ts `verify`: the
+   * live default server is the enrolled incarnation, the pane is on it and is not Harness's own.
+   * Absent (or a read-only manager): a borrowed row is never opened.
+   */
+  verifyExternal?: (session: RegisteredSession) => Promise<{ ok: true } | { ok: false; detail: string }>
 }
 
 function sizeFrom(payload: FramePayload): TerminalStreamSize | null {
@@ -264,6 +279,16 @@ export class TerminalStreamManager {
       })
       return true
     }
+    // A borrowed pane's stream acts only while its enrollment stands: unenrolled (or re-enrolled as a
+    // different pane) means this stream no longer speaks for anything the person chose.
+    if (!TerminalStreamManager.WATCH_SAFE_TYPES.includes(type) && this.enrollmentRevoked(connId, payload)) {
+      this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, {
+        requestId: payload.requestId,
+        streamId: typeof payload.streamId === 'string' ? payload.streamId : undefined,
+        message: EXTERNAL_PANE_DETAIL,
+      })
+      return true
+    }
     switch (type) {
       case 'terminal_capabilities':
         this.capabilities(connId, payload.requestId)
@@ -322,6 +347,7 @@ export class TerminalStreamManager {
       && frame.kind !== TerminalBinaryKind.imagePaste && frame.kind !== TerminalBinaryKind.pasteFile) return
     const state = this.streams.get(frame.streamId)
     if (!state || state.connId !== connId || state.closing) return
+    if (this.enrollmentRevoked(connId, { streamId: frame.streamId })) return
     if (frame.kind === TerminalBinaryKind.imagePaste || frame.kind === TerminalBinaryKind.pasteFile) {
       await this.receiveUploadChunk(state, frame.kind, frame.seq, frame.bytes)
       return
@@ -413,12 +439,21 @@ export class TerminalStreamManager {
       this.sendError(connId, 'TERMINAL_AGENT_NOT_FOUND', { requestId })
       return
     }
-    // Before the placement lock and any takeover: an external row's pane id is not a route this daemon
-    // can resolve (agentOwnership.ts), and its placement key would collide with — and close the stream
-    // of — a managed pane that reuses the id. No stream means no input, resize, paste or lease either.
+    // Before the placement lock and any takeover: a borrowed (external) row's pane id is not a route
+    // the managed namespace resolves (agentOwnership.ts). It opens only through its own enrollment —
+    // verified against the live default server first — under a placement key named by that
+    // enrollment, so it can never collide with, close or be closed by a managed pane reusing the id.
+    const externalKey = enrollmentKey(session)
     if (isExternallyOwned(session)) {
-      this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { requestId, message: EXTERNAL_PANE_DETAIL })
-      return
+      if (!externalKey || this.deps.readOnly || !this.deps.verifyExternal) {
+        this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { requestId, message: EXTERNAL_PANE_DETAIL })
+        return
+      }
+      const verified = await this.deps.verifyExternal(session)
+      if (!verified.ok) {
+        this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { requestId, message: verified.detail })
+        return
+      }
     }
     if (!TERMINAL_ENGINES.has(session.engine)) {
       this.sendError(connId, 'TERMINAL_ENGINE_UNSUPPORTED', { requestId })
@@ -431,7 +466,7 @@ export class TerminalStreamManager {
       this.sendError(connId, 'TERMINAL_RUNTIME_UNAVAILABLE', { requestId })
       return
     }
-    const reservedPlacement = terminalPlacementKey(streamRuntime)
+    const reservedPlacement = externalKey ? `external:${externalKey}` : terminalPlacementKey(streamRuntime)
     // `takeover: false` is a client opening a terminal AHEAD of anyone looking at it — the phone's
     // pager attaching the agents a swipe away from the one on screen. That is a guess, and a guess
     // must not cost another client the terminal it is working in: refused while anyone else holds
@@ -484,15 +519,18 @@ export class TerminalStreamManager {
       let state: ActiveStream | null = null
       let opened: Awaited<ReturnType<TerminalBackendCoordinator['openStream']>>
       try {
-        opened = await this.deps.terminals.openStream(session, size, {
-          onData: (bytes) => {
+        const sink = {
+          onData: (bytes: Uint8Array) => {
             if (state) this.onOutput(state, bytes)
             else buffered.push(Buffer.from(bytes))
           },
-          onClose: (reason) => {
+          onClose: (reason: string) => {
             if (state) void this.closeStream(state, reason, true)
           },
-        }, this.deps.readOnly || watching)
+        }
+        opened = externalKey
+          ? await this.deps.terminals.openExternalStream(session, size, sink, this.deps.readOnly || watching)
+          : await this.deps.terminals.openStream(session, size, sink, this.deps.readOnly || watching)
       } catch {
         if (this.controllerByAgent.get(session.agentId) === ownerId) this.controllerByAgent.delete(session.agentId)
         if (this.controllerByPlacement.get(reservedPlacement) === ownerId) this.controllerByPlacement.delete(reservedPlacement)
@@ -502,11 +540,21 @@ export class TerminalStreamManager {
       if (opened.state !== 'succeeded') {
         if (this.controllerByAgent.get(session.agentId) === ownerId) this.controllerByAgent.delete(session.agentId)
         if (this.controllerByPlacement.get(reservedPlacement) === ownerId) this.controllerByPlacement.delete(reservedPlacement)
-        this.sendError(connId, opened.reason, { requestId })
+        this.sendError(connId, externalKey ? EXTERNAL_TERMINAL_UNAVAILABLE : opened.reason, {
+          requestId, ...(externalKey ? { message: opened.reason } : {}),
+        })
+        return
+      }
+      // Unenrolled while the stream was opening: it never becomes one.
+      if (externalKey && enrollmentKey(this.deps.resolveAgent(session.agentId)) !== externalKey) {
+        if (this.controllerByAgent.get(session.agentId) === ownerId) this.controllerByAgent.delete(session.agentId)
+        if (this.controllerByPlacement.get(reservedPlacement) === ownerId) this.controllerByPlacement.delete(reservedPlacement)
+        await opened.value.close().catch(() => { /* best effort */ })
+        this.sendError(connId, EXTERNAL_TERMINAL_UNAVAILABLE, { requestId, message: EXTERNAL_PANE_DETAIL })
         return
       }
 
-      const placementKey = terminalPlacementKey(opened.value.runtime)
+      const placementKey = externalKey ? reservedPlacement : terminalPlacementKey(opened.value.runtime)
       const actualController = this.controllerByPlacement.get(placementKey)
       if (!this.deps.readOnly && !watching && actualController && actualController !== ownerId) {
         if (this.controllerByAgent.get(session.agentId) === ownerId) this.controllerByAgent.delete(session.agentId)
@@ -567,6 +615,7 @@ export class TerminalStreamManager {
         pausedAt: null,
         pausedMs: 0,
         pendingUpload: null,
+        ...(externalKey ? { externalKey } : {}),
       }
       this.streams.set(streamId, state)
       if (!this.deps.sendTarget(connId, 'terminal_ready', {
@@ -587,6 +636,29 @@ export class TerminalStreamManager {
       this.diagnostic(state, 'opened', { cols: size.cols, rows: size.rows, compression: state.compression })
       await this.sendKeyframe(state)
     })
+  }
+
+  /**
+   * True — and the stream closed — when it was opened for a borrowed pane whose enrollment no longer
+   * stands. Checked on every frame that could reach tmux; a map lookup, no tmux round-trip: the
+   * server incarnation was proven at open and the control client cannot change servers.
+   */
+  private enrollmentRevoked(connId: string, payload: FramePayload): boolean {
+    const streamId = typeof payload.streamId === 'string' ? payload.streamId : ''
+    const state = streamId ? this.streams.get(streamId) : undefined
+    if (!state || state.connId !== connId || !state.externalKey) return false
+    if (enrollmentKey(this.deps.resolveAgent(state.agentId)) === state.externalKey) return false
+    void this.closeStream(state, 'terminal was removed', true, EXTERNAL_TERMINAL_UNAVAILABLE)
+    return true
+  }
+
+  /**
+   * Close every view of one agent's terminal — a borrowed pane that was just unenrolled. Detaches this
+   * daemon's own control clients only; the pane and its processes are left exactly as they are.
+   */
+  async closeAgentStreams(agentId: string, reason: string, code?: string): Promise<void> {
+    const states = [...this.streams.values()].filter((state) => state.agentId === agentId)
+    await Promise.all(states.map((state) => this.closeStream(state, reason, true, code)))
   }
 
   private streamFor(connId: string, payload: FramePayload): ActiveStream | null {

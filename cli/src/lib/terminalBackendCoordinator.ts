@@ -207,6 +207,33 @@ export class TerminalBackendCoordinator {
     return { state: 'failed', reason }
   }
 
+  /**
+   * The one route a borrowed (external) row has: a stream onto its enrolled pane, and only after
+   * the caller verified the pane against its enrollment (externalTmux.ts). The tmux backend checks
+   * the server incarnation again through the attached control client, so a server that restarted
+   * between the caller's check and the attach — and reused the pane id — gets no stream. Nothing
+   * else here routes an external row: `orderedRuntimes` still answers none for it.
+   */
+  async openExternalStream(
+    session: RegisteredSession,
+    size: TerminalStreamSize,
+    sink: TerminalStreamSink,
+    readOnly = false,
+  ): Promise<TerminalReadResult<TerminalStreamHandle>> {
+    const ownership = session.ownership
+    if (!ownership || ownership.kind !== 'external' || !isExternallyOwned(session)) {
+      return { state: 'failed', reason: 'TERMINAL_RUNTIME_UNAVAILABLE' }
+    }
+    const runtime = session.runtimes.find((candidate) => candidate.backend === 'tmux' && candidate.paneId === ownership.paneId)
+    const backend = runtime ? this.backendFor(runtime) : undefined
+    if (!runtime || !backend?.openStream) return { state: 'failed', reason: 'TERMINAL_RUNTIME_UNAVAILABLE' }
+    const result = await backend.openStream(runtime, { engine: session.engine }, size, sink, readOnly, {
+      expectServer: { socketPath: ownership.socketPath, serverIdentity: ownership.serverIdentity },
+      restoreWindowSize: true,
+    })
+    return result as TerminalReadResult<TerminalStreamHandle>
+  }
+
   typeLiteralLease(lease: TerminalControlLease, text: string): Promise<TerminalActionResult> {
     const backend = this.backendFor(lease.runtime)
     return backend

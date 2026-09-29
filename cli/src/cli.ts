@@ -140,7 +140,8 @@ import { sweepWorktrees } from './lib/worktreeSweep.js'
 import { nameBranchAfterSession } from './lib/branchNaming.js'
 import { forgetAgentProject } from './lib/agentProject.js'
 import { createStopAgentService } from './lib/stopAgentService.js'
-import { externalPaneRefused, isExternallyOwned, managedTmuxPaneEngines } from './lib/agentOwnership.js'
+import { EXTERNAL_TERMINAL_UNAVAILABLE, externalPaneRefused, isExternallyOwned, managedTmuxPaneEngines } from './lib/agentOwnership.js'
+import { ExternalTmuxController } from './lib/externalTmux.js'
 import { createResumeAgentService } from './lib/resumeAgentService.js'
 import { buildLaunchOverrides, validateLaunchOverrides, type LaunchOverrides, type LaunchOverridesDeps, type LaunchOverridesResult, type LaunchSource } from './lib/launchOverrides.js'
 import { prepareCodexResume } from './engines/codex/portableHistory.js'
@@ -1396,6 +1397,8 @@ function mergedLaunchEnv(
 
 /** Set by runForeground once the DSH companions exist; a frame projected before that carries none. */
 let dshFrameContextRef: ((s: RegisteredSession) => AgentDshContext | null) | null = null
+/** Set by runForeground when tmux is available: borrowed panes' last verified status (externalTmux.ts). */
+let externalTmuxRef: ExternalTmuxController | null = null
 
 function projectFrame(s: RegisteredSession, selectedModel: string | null): Promise<AgentFrame> {
   return agentFrame(s, {
@@ -1403,6 +1406,7 @@ function projectFrame(s: RegisteredSession, selectedModel: string | null): Promi
     selectedModel,
     terminalAvailable: registry.terminalAvailable(s.agentId),
     dsh: dshFrameContextRef?.(s) ?? null,
+    external: isExternallyOwned(s) ? externalTmuxRef?.status(s.agentId) ?? null : null,
   })
 }
 
@@ -1787,6 +1791,14 @@ async function runForeground(session: AuthSession | null): Promise<void> {
     try { return runtimeLessons(lessonStore, workspace) } catch { return null }
   }
   const syncSession = (s: RegisteredSession, opts: { device?: boolean } = {}): void => {
+    // A borrowed pane is never "advertised" (it has no managed route), yet it stays listed while
+    // unavailable, with its reason — so its frame always goes out, to the app only (never the dial).
+    if (isExternallyOwned(s)) {
+      void projectFrame(s, null)
+        .then((project) => backendRef?.send({ type: 'agent_synced', payload: { agent: project } }))
+        .catch((err) => console.error('[cli] announce external pane failed:', err instanceof Error ? err.message : err))
+      return
+    }
     // A terminal is not the dial's business (see `deviceAgentRow`): it is never upserted there, and
     // the one time it must be REMOVED from there — the engine it adopted has exited — the caller
     // sends that `agent_deleted` itself, because this row is still very much alive for the app.
@@ -2109,8 +2121,29 @@ async function runForeground(session: AuthSession | null): Promise<void> {
       const grid = registry.resolve(agentId)?.grid
       if (grid) void keystrokePrewarm(grid).catch(() => {})
     },
+    // Read at open time: the controller is built just below, from this manager.
+    verifyExternal: async (session) => {
+      if (!externalTmuxRef) return { ok: false, detail: 'tmux is not available on this machine' }
+      const verified = await externalTmuxRef.verify(session)
+      return verified.ok ? verified : { ok: false, detail: verified.detail }
+    },
   })
   backend.setTerminalStreamManager(terminalStreams)
+  // Borrowed tmux panes (externalTmux.ts): default server only, the daemon's own. Status is checked
+  // at boot and on every list, enroll and open — never on a timer — and a failed check leaves the
+  // row enrolled and unavailable; nothing here recreates, renames or kills a pane.
+  const externalTmux = tmuxBackend ? new ExternalTmuxController({
+    registry,
+    onChanged: (row) => syncSession(row),
+    onRemoved: async (agentId) => {
+      await terminalStreams.closeAgentStreams(agentId, 'terminal was removed', EXTERNAL_TERMINAL_UNAVAILABLE)
+      backendRef?.send({ type: 'agent_deleted', payload: { agentId } })
+    },
+    log: (message) => console.log(message),
+  }) : null
+  externalTmuxRef = externalTmux
+  backend.externalTmux = externalTmux
+  if (externalTmux) void externalTmux.refresh().catch((error) => console.error('[external-tmux] boot check failed:', error instanceof Error ? error.message : error))
   // An agent's frame says what its grid's picture says (`grid.state`, and a `grid.note` when its model
   // will not answer). The picture changes on reads nobody waited for, so the frames of the agents whose
   // annotation moved are pushed again — only those, and only when it moved.

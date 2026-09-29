@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import * as C from './core.js'
 import type { Rng } from './core.js'
-import { STRICT_DOWN_TYPES, encryptDownFrameFor } from './applicationFrames.js'
+import { STRICT_DOWN_TYPES, encryptDownFrameFor, encryptRpcResult } from './applicationFrames.js'
 
 // Deterministic RNG for reproducible key material in tests.
 function seeded(seed: number): Rng {
@@ -165,6 +165,14 @@ describe('e2ee core — codes + fingerprint + classification', () => {
     // like a completely unrelated image/file-drop action.
     expect(C.isEncryptedDownType('terminal_chunked_upload_begin')).toBe(true)
     expect(C.isEncryptedDownType('terminal_chunked_upload_cancel')).toBe(true)
+  })
+
+  it('always seals the borrowed-tmux RPCs and answers them to the requester only', () => {
+    // The listing names every session, command and folder on the machine's tmux server.
+    for (const type of ['tmux_panes_list', 'tmux_pane_enroll', 'tmux_pane_unenroll']) {
+      expect(encryptDownFrameFor(type, { strictDown: false })).toBe(true)
+      expect(encryptRpcResult(`${type}_result`)).toBe(true)
+    }
   })
 
   it('seals the formerly-plaintext RPCs only for a daemon that opens them', () => {

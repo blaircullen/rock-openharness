@@ -413,6 +413,43 @@ function decodeControlResponse(lines: readonly Buffer[]): Buffer {
   return Buffer.concat(chunks)
 }
 
+/**
+ * What a stream onto a BORROWED pane (agentOwnership.ts) has to prove and put back. A managed pane
+ * needs neither: its bare id is Harness's own route on the default server.
+ */
+export interface TmuxStreamOpenOptions {
+  /**
+   * The server incarnation the pane was enrolled from. Checked through the control client itself,
+   * after it attached and before anything is resized, typed or read: a pane id is only unique within
+   * one server incarnation, and a restarted server hands `%N` out again. Every later side effect goes
+   * down this same control client, which cannot outlive or change its server, so the one check covers
+   * the stream's whole life.
+   */
+  expectServer?: { socketPath: string; serverIdentity: string }
+  /**
+   * `resize-window` pins the window's `window-size` to `manual`, which would stay on a window
+   * Harness only borrowed after the stream is gone. Put the window-level value back as found.
+   */
+  restoreWindowSize?: boolean
+}
+
+/** Server identity, socket, pane, window pane count — one line, read through the control client. */
+const SERVER_PROBE_FORMAT = '#{pid}:#{start_time}|#{socket_path}|#{pane_id}|#{window_panes}'
+
+/** Whether the control client is attached to the expected incarnation, on the expected pane. */
+export function serverProbeMatches(
+  stdout: Uint8Array,
+  paneId: string,
+  expected: { socketPath: string; serverIdentity: string },
+): boolean {
+  const fields = Buffer.from(stdout).toString('utf8').trim().split('|')
+  return fields.length === 4
+    && fields[0] === expected.serverIdentity
+    && fields[1] === expected.socketPath
+    && fields[2] === paneId
+    && fields[3] === '1'
+}
+
 export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
   readonly runtime: TmuxRuntimeRef
   private readonly child: ChildProcessWithoutNullStreams
@@ -430,12 +467,15 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
   // Set by scroll() when it enters tmux copy-mode. Copy-mode swallows keyboard input for its own
   // navigation, so writeRaw() must exit it before the next real keystroke — see writeRaw()'s doc.
   private inCopyMode = false
+  /** The window-level `window-size` found before this stream first resized (null: not set there). */
+  private originalWindowSize: { windowId: string; value: string | null } | undefined
 
   private constructor(
     paneId: string,
     child: ChildProcessWithoutNullStreams,
     private readonly sink: TerminalStreamSink,
     private readonly readOnly = false,
+    private readonly options: TmuxStreamOpenOptions = {},
   ) {
     this.runtime = { backend: 'tmux', paneId }
     this.child = child
@@ -463,7 +503,13 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
     child.once('close', (code) => this.notifyClose(this.closed ? 'closed' : `tmux control client exited (${code ?? 'signal'})`))
   }
 
-  static async open(paneId: string, size: TerminalStreamSize, sink: TerminalStreamSink, readOnly = false): Promise<TerminalReadResult<TmuxControlStream>> {
+  static async open(
+    paneId: string,
+    size: TerminalStreamSize,
+    sink: TerminalStreamSink,
+    readOnly = false,
+    options: TmuxStreamOpenOptions = {},
+  ): Promise<TerminalReadResult<TmuxControlStream>> {
     const original = await paneMeta(paneId)
     if (!original) return { state: 'failed', reason: 'tmux pane metadata is unavailable' }
     if (original.windowPanes !== 1) return { state: 'failed', reason: 'TERMINAL_MULTI_PANE_UNSUPPORTED' }
@@ -476,7 +522,14 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       child.once('error', () => { if (!settled) { settled = true; resolve(false) } })
     })
     if (!spawned) return { state: 'failed', reason: 'tmux control client could not start' }
-    const stream = new TmuxControlStream(paneId, child, sink, readOnly)
+    const stream = new TmuxControlStream(paneId, child, sink, readOnly, options)
+    if (options.expectServer) {
+      const probe = await stream.runControlCommand(`display-message -p -t ${paneId} '${SERVER_PROBE_FORMAT}'`)
+      if (!probe.ok || !serverProbeMatches(probe.stdout, paneId, options.expectServer)) {
+        await stream.close()
+        return { state: 'failed', reason: 'TERMINAL_EXTERNAL_SERVER_CHANGED' }
+      }
+    }
     const resized = readOnly ? TERMINAL_ACTION_SUCCEEDED : await stream.resize(size)
     if (resized.state !== 'succeeded') {
       await stream.close()
@@ -747,6 +800,13 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       if (meta.windowWidth === size.cols && meta.windowHeight === size.rows) {
         return TERMINAL_ACTION_SUCCEEDED
       }
+      if (this.options.restoreWindowSize && this.originalWindowSize === undefined) {
+        const found = await this.runControlCommand(`show-options -w -v -t ${meta.windowId} window-size`)
+        // Unreadable means it cannot be put back, so the borrowed window is not resized at all.
+        if (!found.ok) return terminalActionNotStarted('tmux window size could not be read')
+        const value = found.stdout.toString('utf8').trim()
+        this.originalWindowSize = { windowId: meta.windowId, value: /^[a-z]{1,16}$/.test(value) ? value : null }
+      }
       const result = await this.runControlCommand(
         `resize-window -t ${meta.windowId} -x ${size.cols} -y ${size.rows}`,
       )
@@ -776,6 +836,14 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
     // such as Grok preserve those intermediate repaint fragments in the live
     // screen. The next controller will resize only if its grid truly differs.
     if (this.child.stdin.writable) {
+      // A borrowed window gets its own sizing back — queued ahead of the detach, so tmux runs it first.
+      const original = this.originalWindowSize
+      if (original) {
+        const restore = original.value
+          ? `set-option -w -t ${original.windowId} window-size ${original.value}`
+          : `set-option -w -u -t ${original.windowId} window-size`
+        try { this.child.stdin.write(`${restore}\n`) } catch { /* ignore */ }
+      }
       try { this.child.stdin.write('detach-client\n') } catch { /* ignore */ }
     }
     const exited = await new Promise<boolean>((resolve) => {

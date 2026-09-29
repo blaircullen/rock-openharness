@@ -19,7 +19,7 @@ import {
   type TmuxRuntimeRef,
   type RuntimeValidation,
 } from './terminalTypes.js'
-import { TmuxControlStream } from './tmuxStream.js'
+import { TmuxControlStream, type TmuxStreamOpenOptions } from './tmuxStream.js'
 import {
   captureTmuxPane,
   ENGINE_EXIT_PANE_OPTION,
@@ -407,8 +407,9 @@ export class TmuxBackend implements TerminalBackend<TmuxRuntimeRef> {
     size: TerminalStreamSize,
     sink: TerminalStreamSink,
     readOnly?: boolean,
+    options?: TmuxStreamOpenOptions,
   ): Promise<TerminalReadResult<TerminalStreamHandle<TmuxRuntimeRef>>> {
     void expected
-    return TmuxControlStream.open(runtime.paneId, size, sink, readOnly)
+    return TmuxControlStream.open(runtime.paneId, size, sink, readOnly, options)
   }
 }

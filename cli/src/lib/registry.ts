@@ -41,7 +41,7 @@ import { hostname, uptime } from 'os'
 import { cursorDataDir } from '../engines/cursor/home.js'
 import { env } from '../config/env.js'
 import { readCodexRolloutMeta, resolveCodexRollout } from '../engines/codex/rollout.js'
-import { ENGINES, isTerminalEngine, type AgentEngine } from '../engines/types.js'
+import { ENGINES, TERMINAL_ENGINE, isTerminalEngine, type AgentEngine } from '../engines/types.js'
 import type { GridAssignment } from './gridAssignment.js'
 import { parseGridLaunchOverride, type GridLaunchOverride, type GridLaunchRecord, type GridWebSearchStatus } from './gridLaunch.js'
 import { commandcodeTranscriptPath } from '../engines/commandcode/transcript.js'
@@ -1396,6 +1396,84 @@ class Registry {
     this.terminalAvailableAgents.add(entry.agentId)
     this.save()
     return entry
+  }
+
+  /**
+   * Record a tmux pane Harness did NOT create (externalTmux.ts). The row is external from its first
+   * moment, so every lifecycle refusal in agentOwnership.ts applies to it, and it is quarantined like
+   * any external row: indexed by agentId only, never by route, process or session. Refused while
+   * writes are blocked, when a managed row holds the pane id, or when another enrollment already
+   * names the same (socket, server incarnation, pane).
+   */
+  enrollExternal(input: { ownership: ExternalTmuxOwnership; cwd: string | null; name: string }): RegisteredSession | null {
+    if (this.writeBlocked) return null
+    const ownership: ExternalTmuxOwnership = { ...input.ownership }
+    const runtimes = normalizedRuntimes([{ backend: 'tmux', paneId: ownership.paneId }])
+    if (runtimes.length !== 1 || this.runtimeIndex.has(terminalRouteKey(runtimes[0]))) return null
+    const key = externalEndpointKey(ownership)
+    for (const row of this.agents.values()) {
+      if (isExternallyOwned(row) && row.ownership?.kind === 'external' && externalEndpointKey(row.ownership) === key) return null
+    }
+    const now = Date.now()
+    const agentId = randomUUID()
+    const entry: RegisteredSession = {
+      schemaVersion: EXTERNAL_ROW_SCHEMA_VERSION as RegisteredSession['schemaVersion'],
+      active: true,
+      launch: { state: 'ready' },
+      defaultName: normalizedDefaultName(input.name) ?? ownership.paneId,
+      agentId,
+      sessionId: '',
+      boundAt: null,
+      engine: TERMINAL_ENGINE,
+      gateway: null,
+      grid: null,
+      gridLaunch: null,
+      gridWebSearch: null,
+      codexHome: null,
+      hermesHome: null,
+      dsh: null,
+      dshRuntime: null,
+      agent: null,
+      transcriptPath: null,
+      projectDir: basename(input.cwd ?? '') || agentId,
+      cwd: input.cwd,
+      runtimes,
+      primaryRuntimeKey: selectedRuntimeKey(runtimes, ''),
+      tmuxPane: tmuxProjection(runtimes),
+      source: null,
+      title: null,
+      model: null,
+      cliVersion: null,
+      processIdentity: null,
+      registeredAt: now,
+      touchedAt: now,
+      lastHookAt: now,
+      lastTranscriptAt: now,
+      ownership,
+    }
+    // The same check a reload runs, so a row this build writes is one it can read back.
+    if (!strictPersistedRow(JSON.parse(JSON.stringify(persistedRow(entry))))) return null
+    this.index(entry)
+    this.save()
+    return entry
+  }
+
+  /**
+   * Forget an enrollment. Only an external row, and only the row: nothing here (or anywhere this is
+   * called from) signals, kills, renames or detaches the pane — the pane was never Harness's.
+   */
+  unenrollExternal(agentId: string): boolean {
+    const entry = this.agents.get(agentId)
+    if (!entry || !isExternallyOwned(entry) || this.writeBlocked) return false
+    this.drop(entry)
+    this.terminalAvailableAgents.delete(agentId)
+    this.save()
+    return true
+  }
+
+  /** Every enrolled (external) row — `advertised()` deliberately never includes them. */
+  externalRows(): RegisteredSession[] {
+    return this.list().filter((entry) => isExternallyOwned(entry))
   }
 
   /** Every name an agent on this machine answers to: default names, project names, renames. */

@@ -76,6 +76,31 @@ describe('agentFrame', () => {
       .toMatchObject({ tmuxPane: '%1', terminal: { available: true, primary: 'tmux/%1', runtimes: [{ backend: 'tmux', paneId: '%1' }] } })
   })
 
+  it('describes a borrowed pane by its last verified status, still with no route', async () => {
+    const external: RegisteredSession = {
+      ...session(null), engine: 'terminal', sessionId: '',
+      ownership: { kind: 'external', backend: 'tmux', socketPath: '/tmp/other.sock', serverIdentity: '9:1', paneId: '%1' },
+    }
+    const unchecked = await agentFrame(external, { selectedModel: null, terminalAvailable: true })
+    expect(unchecked.external).toMatchObject({ kind: 'tmux', available: false, reason: 'NOT_CHECKED' })
+    expect(JSON.stringify(unchecked)).not.toContain('%1')
+    const open = await agentFrame(external, {
+      selectedModel: null, terminalAvailable: false,
+      external: { available: true, reason: null, sessionName: 'work', windowIndex: 2, paneIndex: 0, windowName: 'vim', command: 'vim' },
+    })
+    expect(open).toMatchObject({
+      tmuxPane: null,
+      terminal: { available: true, primary: '', runtimes: [] },
+      external: { sessionName: 'work', windowIndex: 2, paneIndex: 0, command: 'vim', available: true, reason: null },
+    })
+    const restarted = await agentFrame(external, {
+      selectedModel: null, terminalAvailable: true, external: { available: false, reason: 'TMUX_SERVER_RESTARTED' },
+    })
+    expect(restarted.terminal).toMatchObject({ available: false, reason: 'the tmux server restarted since this pane was added' })
+    expect(restarted.external).toMatchObject({ available: false, reason: 'TMUX_SERVER_RESTARTED' })
+    expect((await agentFrame(session(null), { selectedModel: null, terminalAvailable: true })).external).toBeNull()
+  })
+
   it('masks a malformed ownership claim the same way (fails closed)', async () => {
     const malformed = { ...session(null), ownership: { kind: 'bogus' } } as unknown as RegisteredSession
     expect(await agentFrame(malformed, { selectedModel: null, terminalAvailable: true }))
