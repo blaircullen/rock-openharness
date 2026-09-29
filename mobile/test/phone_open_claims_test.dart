@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:harness_mobile/core/models.dart';
 import 'package:harness_mobile/state/app_state.dart';
 
 import 'agent_pager_fixture.dart';
@@ -76,5 +77,25 @@ void main() {
 
     expect(open['agentId'], 'a');
     expect(open['takeover'], isFalse, reason: 'a guess never takes a terminal');
+  });
+
+  test('warming a borrowed pane directly never opens it', () async {
+    final conn = PagerConn();
+    final app = pagerApp(conn);
+    addTearDown(app.dispose);
+    final machine = app.stateOf('m')!;
+    machine.terminalNoTakeoverAvailable = true;
+    machine.agents = [
+      Agent.fromJson({
+        'id': 'borrowed',
+        'name': 'borrowed',
+        'engine': 'terminal',
+        'terminal': {'available': true, 'primary': '', 'runtimes': []},
+        'external': {'kind': 'tmux', 'available': true},
+      }),
+    ];
+    await app.warmAgentPane('m', 'borrowed');
+    expect(app.paneOfAgent('m', 'borrowed'), isNull);
+    expect(conn.opens, isEmpty);
   });
 }

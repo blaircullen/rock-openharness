@@ -554,16 +554,27 @@ class _AgentSwipeHostState extends State<AgentSwipeHost> {
     await _awaitRendered(_current, run, limit: _currentRenderWait);
     if (stale()) return;
     for (final ring in _rings()) {
+      final warming = <AgentRef>[];
       for (final agent in ring) {
         if (stale()) return;
+        if (notifier
+                .stateOf(agent.machineId)
+                ?.agents
+                .any((row) => row.id == agent.agentId && row.isExternal) ==
+            true) {
+          continue;
+        }
         final open = notifier.paneOfAgent(agent.machineId, agent.agentId);
         if (open == null && _openPanes() >= _maxOpen) return;
         // Recorded BEFORE the attach, for the same reason [_onPageChanged] records the page it
         // lands on: a pane always has an owner to close it.
         _attached.add(agent);
+        warming.add(agent);
         unawaited(notifier.warmAgentPane(agent.machineId, agent.agentId));
       }
-      await Future.wait([for (final agent in ring) _awaitRendered(agent, run)]);
+      await Future.wait([
+        for (final agent in warming) _awaitRendered(agent, run),
+      ]);
     }
   }
 

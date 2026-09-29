@@ -3996,7 +3996,9 @@ class AppNotifier extends ChangeNotifier {
   ) async {
     final machine = machineStates[machineId];
     if (machine == null) return 'Machine not found';
-    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
+    if (machine.agents.any(
+      (agent) => agent.id == agentId && agent.isExternal,
+    )) {
       return 'Borrowed tmux panes cannot be renamed.';
     }
     final trimmed = name.trim();
@@ -4025,7 +4027,13 @@ class AppNotifier extends ChangeNotifier {
   /// nothing new.
   void touchAgent(String machineId, String agentId) {
     final machine = machineStates[machineId];
-    if (machine == null || machine.needsLink) return;
+    if (machine == null ||
+        machine.needsLink ||
+        machine.agents.any(
+          (agent) => agent.id == agentId && agent.isExternal,
+        )) {
+      return;
+    }
     final key = '$machineId/$agentId';
     final now = DateTime.now();
     final last = _touchedAt[key];
@@ -4051,7 +4059,9 @@ class AppNotifier extends ChangeNotifier {
   Future<String?> deleteAgent(String machineId, String agentId) async {
     final machine = machineStates[machineId];
     if (machine == null) return 'Machine not found';
-    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
+    if (machine.agents.any(
+      (agent) => agent.id == agentId && agent.isExternal,
+    )) {
       return 'Use Remove from Harness for a borrowed tmux pane.';
     }
     Map<String, dynamic> result;
@@ -4099,7 +4109,11 @@ class AppNotifier extends ChangeNotifier {
         .where((agent) => agent.id == agentId)
         .firstOrNull;
     if (agent?.isExternal == true) {
-      return Future.value(const RestartAgentResult(error: 'A borrowed tmux pane cannot be resumed.'));
+      return Future.value(
+        const RestartAgentResult(
+          error: 'A borrowed tmux pane cannot be resumed.',
+        ),
+      );
     }
     if (agent?.terminalAvailable == true) {
       return Future.value(const RestartAgentResult());
@@ -4249,8 +4263,12 @@ class AppNotifier extends ChangeNotifier {
     if (machine == null) {
       return const RestartAgentResult(error: 'Machine not found');
     }
-    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
-      return const RestartAgentResult(error: 'A borrowed tmux pane cannot be restarted.');
+    if (machine.agents.any(
+      (agent) => agent.id == agentId && agent.isExternal,
+    )) {
+      return const RestartAgentResult(
+        error: 'A borrowed tmux pane cannot be restarted.',
+      );
     }
     Map<String, dynamic> result;
     try {
@@ -4382,7 +4400,10 @@ class AppNotifier extends ChangeNotifier {
     String agentId,
     Map<String, dynamic> payload,
   ) async {
-    if (machineStates[machineId]?.agents.any((agent) => agent.id == agentId && agent.isExternal) == true) {
+    if (machineStates[machineId]?.agents.any(
+          (agent) => agent.id == agentId && agent.isExternal,
+        ) ==
+        true) {
       return 'A borrowed tmux pane cannot change models.';
     }
     try {
@@ -4721,6 +4742,12 @@ class AppNotifier extends ChangeNotifier {
   /// See [MachineState.terminalNoTakeoverAvailable].
   Future<void> warmAgentPane(String machineId, String agentId) async {
     if (_disposed) return;
+    if (machineStates[machineId]?.agents.any(
+          (agent) => agent.id == agentId && agent.isExternal,
+        ) ==
+        true) {
+      return;
+    }
     if (machineStates[machineId]?.terminalNoTakeoverAvailable != true) return;
     final existing = paneOfAgent(machineId, agentId);
     if (existing != null) {

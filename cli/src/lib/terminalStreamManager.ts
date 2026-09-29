@@ -497,7 +497,9 @@ export class TerminalStreamManager {
       // its output, and only typing is withheld until a person asks for it. So the open succeeds as
       // a WATCHER: tmux attaches read-only (no control lease, no resize, no input), the incumbent
       // keeps the terminal, and the client is told which it got by `readOnly` on `terminal_ready`.
-      const watching = !this.deps.readOnly && !takeover && incumbents.length > 0
+      // A borrowed pane may be in use by a person in tmux without any Harness stream.
+      // A speculative open must never acquire its lease or resize that window.
+      const watching = !this.deps.readOnly && !takeover && (externalKey !== null || incumbents.length > 0)
       // Who a watcher is watching, named on its banner — "MacBook Pro is using this terminal" — as
       // `takenBy` names the winner on the incumbent's. Read now, before any stream below moves.
       const heldBy = watching ? this.holderOf(incumbents, reservedPlacement) : undefined

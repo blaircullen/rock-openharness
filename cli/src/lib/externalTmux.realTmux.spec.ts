@@ -15,6 +15,8 @@ import { ExternalTmuxController, readFullTmuxInventory, type ExternalRegistry } 
 import type { ExternalTmuxOwnership } from './agentOwnership.js'
 import type { RegisteredSession } from './registry.js'
 import { removeBorrowedView, sweepBorrowedViews, TmuxControlStream } from './tmuxStream.js'
+import { TerminalStreamManager } from './terminalStreamManager.js'
+import type { TerminalBackendCoordinator } from './terminalBackendCoordinator.js'
 
 const hasTmux = (() => { try { execFileSync('tmux', ['-V']); return true } catch { return false } })()
 
@@ -70,7 +72,12 @@ describe.skipIf(!hasTmux)('borrowed panes on a real, isolated tmux server', () =
   })
 
   afterAll(() => {
-    try { tmux('kill-server') } catch { /* already gone */ }
+    // Only this file's isolated socket, and only its sessions. Never kill a tmux server.
+    try {
+      for (const name of tmux('list-sessions', '-F', '#{session_name}').split('\n').filter(Boolean)) {
+        tmux('kill-session', '-t', `=${name}`)
+      }
+    } catch { /* already gone */ }
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
@@ -132,6 +139,45 @@ describe.skipIf(!hasTmux)('borrowed panes on a real, isolated tmux server', () =
     await opened.value.close()
     expect(alive(myPane)).toBe(true)
     expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).toBe(before)
+  })
+
+  it('takeover:false opens a borrowed pane without resizing its real window', async () => {
+    const before = tmux('display-message', '-p', '-t', myPane, '#{window_width}x#{window_height}')
+    const frames: Array<{ type: string; payload: Record<string, unknown> }> = []
+    const terminals = {
+      openExternalStream: async (
+        row: RegisteredSession,
+        size: { cols: number; rows: number },
+        sink: Parameters<typeof TmuxControlStream.open>[2],
+        readOnly: boolean,
+      ) => {
+        const ownership = row.ownership as ExternalTmuxOwnership
+        return TmuxControlStream.open(myPane, size, sink, readOnly, {
+          expectServer: { socketPath: ownership.socketPath, serverIdentity: ownership.serverIdentity },
+          restoreWindowSize: true,
+        })
+      },
+    } as unknown as TerminalBackendCoordinator
+    const manager = new TerminalStreamManager({
+      terminals,
+      resolveAgent: (agentId) => agentId === enrolled.agentId ? enrolled : undefined,
+      verifyExternal: (row) => controller.verify(row),
+      sendTarget: (_connId, type, payload) => { frames.push({ type, payload }); return true },
+      sendBinaryTarget: () => true,
+      streamingAvailable: true,
+      now: () => Date.now(),
+    })
+    try {
+      await manager.handleFrame('phone', 'terminal_open', {
+        requestId: 'borrowed-watch', protocolVersion: 3, agentId: enrolled.agentId,
+        cols: 137, rows: 44, takeover: false,
+      })
+      expect(frames.find((frame) => frame.type === 'terminal_ready')?.payload.readOnly).toBe(true)
+      expect(tmux('display-message', '-p', '-t', myPane, '#{window_width}x#{window_height}')).toBe(before)
+    } finally {
+      await manager.stop()
+    }
+    expect(tmux('display-message', '-p', '-t', myPane, '#{window_width}x#{window_height}')).toBe(before)
   })
 
   it('scrolling a borrowed stream sends nothing: the person\'s copy-mode stays, no keys reach the pane', async () => {

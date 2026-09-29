@@ -135,6 +135,43 @@ void main() {
     expect(app.paneOfAgent('m', 'c'), isNull);
   });
 
+  testWidgets('prefetch never opens a borrowed neighbour', (tester) async {
+    final conn = PagerConn();
+    final app = pagerApp(conn);
+    addTearDown(app.dispose);
+    final machine = app.stateOf('m')!;
+    machine.terminalNoTakeoverAvailable = true;
+    machine.agents = [
+      for (final agent in machine.agents)
+        if (agent.id == 'c')
+          Agent.fromJson({
+            'id': 'c',
+            'name': 'c',
+            'engine': 'terminal',
+            'terminal': {'available': true, 'primary': '', 'runtimes': []},
+            'external': {'kind': 'tmux', 'available': true},
+          })
+        else
+          agent,
+    ];
+    await liveAgent(app, 'b');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AgentSwipeHost(
+          notifier: app,
+          machineId: 'm',
+          agentId: 'b',
+          neighbours: pagerList(app),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(conn.opens.map((open) => open['agentId']), contains('a'));
+    expect(conn.opens.map((open) => open['agentId']), isNot(contains('c')));
+    expect(app.paneOfAgent('m', 'c'), isNull);
+  });
+
   testWidgets('opens the agent swiped to, and only when it is swiped to', (
     tester,
   ) async {

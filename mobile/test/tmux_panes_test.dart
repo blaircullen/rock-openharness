@@ -7,9 +7,15 @@ import 'package:harness_mobile/core/models.dart';
 import 'package:harness_mobile/core/tmux_panes.dart';
 import 'package:harness_mobile/e2ee/envelope.dart';
 import 'package:harness_mobile/phone/agents_page.dart';
+import 'package:harness_mobile/phone/agent_swipe.dart';
 import 'package:harness_mobile/phone/tmux_pane_picker.dart';
+import 'package:harness_mobile/phone/terminal_page.dart';
+import 'package:harness_mobile/phone/terminal_title.dart';
+import 'package:harness_mobile/phone/voice_input_controller.dart';
 import 'package:harness_mobile/state/app_state.dart';
 import 'package:harness_mobile/ws/ws_conn.dart';
+
+import 'voice_fakes.dart';
 
 class _Conn extends WsConn {
   _Conn()
@@ -208,6 +214,11 @@ void main() {
         conn.calls.where((call) => call.$1 == 'tmux_panes_list').length,
         1,
       );
+      await tester.pump(const Duration(minutes: 2));
+      expect(
+        conn.calls.where((call) => call.$1 == 'tmux_panes_list').length,
+        1,
+      );
       await tester.tap(find.textContaining('Harness session'));
       await tester.pump();
       expect(
@@ -245,6 +256,64 @@ void main() {
     for (final label in ['Stop Harness…', 'Rename…', 'Restart', 'Model']) {
       expect(find.text(label), findsNothing);
     }
+  });
+
+  testWidgets(
+    'terminal page shows the borrowed sheet instead of lifecycle actions',
+    (tester) async {
+      final conn = _Conn();
+      final app = _app(conn, agents: [Agent.fromJson(_borrowed('borrowed'))]);
+      addTearDown(app.dispose);
+      final language = ValueNotifier('en');
+      final voice = VoiceInputController(
+        transcriber: FakeTranscriber().call,
+        recorder: FakeVoiceRecorder(),
+        language: language,
+      );
+      addTearDown(() {
+        voice.dispose();
+        language.dispose();
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TerminalPage(
+            notifier: app,
+            machineId: 'm',
+            agentId: 'borrowed',
+            voice: voice,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byType(TerminalTitle));
+      await tester.pump(const Duration(milliseconds: 400));
+      for (final label in ['Open', 'Disconnect', 'Remove from Harness']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      for (final label in ['Restart', 'Model', 'Stop this harness…']) {
+        expect(find.text(label), findsNothing);
+      }
+    },
+  );
+
+  testWidgets('opening a borrowed pane does not send agent_update', (
+    tester,
+  ) async {
+    final conn = _Conn();
+    final app = _app(conn, agents: [Agent.fromJson(_borrowed('borrowed'))]);
+    addTearDown(app.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AgentSwipeHost(
+          notifier: app,
+          machineId: 'm',
+          agentId: 'borrowed',
+          neighbours: null,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(conn.calls.where((call) => call.$1 == 'agent_update'), isEmpty);
   });
 
   test('fork version and sealed tmux requests', () {

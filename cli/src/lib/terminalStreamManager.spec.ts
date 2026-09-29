@@ -1311,6 +1311,28 @@ describe('TerminalStreamManager', () => {
         expect(Buffer.from(externalStream.writes[0]).toString()).toBe('ls\r')
       })
 
+      it('opens a borrowed pane without an incumbent as a read-only watcher', async () => {
+        agents.set('ext-1', externalAgent())
+        await manager.handleFrame('web-1', 'terminal_open', {
+          requestId: 'watch-ext', protocolVersion: 3, agentId: 'ext-1',
+          cols: 137, rows: 44, takeover: false,
+        })
+        const ready = sent.findLast((frame) => frame.type === 'terminal_ready')!.payload
+        expect(ready.readOnly).toBe(true)
+        expect(openExternal).toHaveBeenCalledWith(
+          agents.get('ext-1'), { cols: 137, rows: 44 }, expect.anything(), true,
+        )
+        await manager.handleBinary('web-1', {
+          kind: TerminalBinaryKind.input, streamId: ready.streamId as string,
+          seq: 0, compressed: false, bytes: Buffer.from('no input'),
+        })
+        await manager.handleFrame('web-1', 'terminal_resize', {
+          streamId: ready.streamId, resizeSeq: 0, cols: 150, rows: 50,
+        })
+        expect(externalStream.writes).toHaveLength(0)
+        expect(externalStream.sizes).toHaveLength(0)
+      })
+
       it('never refuses without verifying: a read-only manager does not open a borrowed pane', async () => {
         agents.set('ext-1', externalAgent())
         manager = newManager({ verifyExternal, readOnly: true })
