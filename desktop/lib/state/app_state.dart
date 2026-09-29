@@ -40,6 +40,7 @@ import '../core/local_git_projects.dart';
 import '../core/test_run.dart';
 import '../core/models.dart';
 import '../core/machine_resources.dart';
+import '../core/tmux_panes.dart';
 import '../core/project_folder.dart';
 import '../core/git_worktree.dart';
 import '../core/project_history.dart';
@@ -5267,7 +5268,8 @@ class AppNotifier extends ChangeNotifier {
           prev.viewerUrl != agent.viewerUrl ||
           prev.viewerError != agent.viewerError ||
           prev.viewerName != agent.viewerName ||
-          prev.verdict != agent.verdict) {
+          prev.verdict != agent.verdict ||
+          prev.external != agent.external) {
         return false;
       }
     }
@@ -6098,6 +6100,96 @@ class AppNotifier extends ChangeNotifier {
       payload: payload,
       timeout: timeout,
     );
+  }
+
+  /// A machine's connection for the borrowed-tmux RPCs, or a worded refusal.
+  WsConn _tmuxConnection(String machineId) {
+    final machine = stateOf(machineId);
+    const offline = TmuxPaneError(
+      'NOT_CONNECTED',
+      'Reconnect this machine to see its tmux panes.',
+    );
+    if (machine == null ||
+        machine.machine.isShared ||
+        machine.needsLink ||
+        machine.nodeOnline == false ||
+        machine.connectionStatus != ConnectionStatus.connected) {
+      throw offline;
+    }
+    final connection = _conn(machineId);
+    if (!connection.isReady) throw offline;
+    return connection;
+  }
+
+  Future<Map<String, dynamic>> _tmuxRequest(
+    String machineId,
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    final connection = _tmuxConnection(machineId);
+    try {
+      final reply = await connection.request(
+        type,
+        payload: payload,
+        timeout: const Duration(seconds: 10),
+      );
+      if (reply['error'] != null) throw TmuxPaneError.fromReply(reply);
+      return reply;
+    } on WsRequestFailure catch (failure) {
+      throw TmuxPaneError.fromReply({
+        'error': failure.code,
+        'detail': failure.detail,
+      });
+    } on WsRequestTimeout {
+      throw const TmuxPaneError(
+        'TIMEOUT',
+        'The machine did not answer. Try again.',
+      );
+    }
+  }
+
+  /// Every pane on [machineId]'s default tmux server. Read-only on the machine.
+  Future<TmuxPaneListing> listTmuxPanes(String machineId) async =>
+      TmuxPaneListing.fromJson(
+        await _tmuxRequest(machineId, 'tmux_panes_list', const {}),
+      );
+
+  /// Enrolls [pane] as a terminal on [machineId]. [serverIdentity] is the one
+  /// the listing was read from: a tmux server that restarted since is refused,
+  /// so a reused pane id is never enrolled in the listed pane's place.
+  Future<Agent> enrollTmuxPane(
+    String machineId,
+    TmuxPane pane,
+    String serverIdentity,
+  ) async {
+    final machine = stateOf(machineId);
+    final reply = await _tmuxRequest(machineId, 'tmux_pane_enroll', {
+      'paneId': pane.paneId,
+      'serverIdentity': serverIdentity,
+    });
+    final raw = reply['agent'];
+    if (raw is! Map || raw['id'] is! String) {
+      throw const TmuxPaneError('BAD_REPLY', 'The machine sent no terminal.');
+    }
+    final agent = Agent.fromJson(Map<String, dynamic>.from(raw));
+    if (_disposed || machine == null || machineStates[machineId] != machine) {
+      throw const TmuxPaneError('NOT_CONNECTED', 'The machine went away.');
+    }
+    _upsertAgent(machine, agent);
+    notifyListeners();
+    return agent;
+  }
+
+  /// Forgets an enrollment. The machine detaches its views of the pane; the
+  /// tmux pane and whatever runs in it are left exactly as they are.
+  Future<void> unenrollTmuxPane(String machineId, String agentId) async {
+    await _tmuxRequest(machineId, 'tmux_pane_unenroll', {'agentId': agentId});
+    final machine = stateOf(machineId);
+    if (_disposed || machine == null) return;
+    if (machine.agents.any((agent) => agent.id == agentId)) {
+      await _removeAgent(machine, agentId);
+    }
+    notifyListeners();
   }
 
   Future<Map<String, dynamic>> controlLocalModel(
@@ -9004,6 +9096,12 @@ class AppNotifier extends ChangeNotifier {
     if (agent == null) {
       return Future.value(
         'The agent is no longer listed. Refresh to check its status.',
+      );
+    }
+    // A borrowed tmux pane is the person's: unenroll forgets it, nothing ends it.
+    if (agent.isExternal) {
+      return Future.value(
+        'This tmux pane was added from its machine. Unenroll it instead.',
       );
     }
     final request = _AgentStop(machine, agent, _authRevision);

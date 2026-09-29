@@ -31,6 +31,11 @@ const Set<String> encryptedDownTypes = {
   'viewer_surface',
   'api_connections',
   'orchestrator',
+  // Borrowed tmux panes (cli/src/lib/externalTmux.ts): the listing names every session, command and
+  // folder on the machine's tmux server, and enrollment opens one to typing. Always sealed.
+  'tmux_panes_list',
+  'tmux_pane_enroll',
+  'tmux_pane_unenroll',
   'command_bar',
   'route_task',
   'route_send',

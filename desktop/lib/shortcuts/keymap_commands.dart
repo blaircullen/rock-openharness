@@ -370,6 +370,20 @@ final harnessCommands = <HarnessCommand>[
   ),
   const HarnessCommand('agent.stop', 'Stop Harness', ShortcutGroup.actions),
   const HarnessCommand('agent.fork', 'Fork Harness', ShortcutGroup.actions),
+  // Borrowed tmux panes (cli/src/lib/externalTmux.ts): list a machine's own
+  // tmux panes and add one as a terminal; unenroll forgets it, never kills it.
+  const HarnessCommand(
+    'tmux.attach',
+    'Add tmux Pane…',
+    ShortcutGroup.actions,
+    keywords: ['tmux', 'attach', 'existing', 'enroll', 'pane', 'session'],
+  ),
+  const HarnessCommand(
+    'agent.unenroll',
+    'Unenroll tmux Pane',
+    ShortcutGroup.actions,
+    keywords: ['tmux', 'remove', 'forget', 'detach', 'unenroll'],
+  ),
   const HarnessCommand(
     'agent.share',
     'Share Harness',

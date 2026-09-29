@@ -12,6 +12,7 @@ import 'window_chrome.dart';
 import '../clipboard/image_bytes.dart';
 import '../core/dsh_catalog.dart' show DshEntry;
 import '../core/models.dart' show Agent, kUntitledPane;
+import '../logging/app_log.dart';
 import '../clipboard/native_clipboard.dart';
 import '../shared/theme/app_theme.dart' as grid;
 // `hide TerminalKey`: this file's own shortcut-label class, unused here, collides with xterm's
@@ -1213,9 +1214,7 @@ class _PaneCell extends StatelessWidget {
         // decoration present even when clear: inserting/removing it would
         // reparent the terminal and lose its input, scroll and selection state.
         foregroundDecoration: BoxDecoration(
-          color: dimmed
-              ? const Color(0xFF9D9D9D).withValues(alpha: .30)
-              : null,
+          color: dimmed ? const Color(0xFF9D9D9D).withValues(alpha: .30) : null,
           border: blocked
               ? Border.all(color: grid.AppPalette.warn, width: 2)
               : null,
@@ -1415,12 +1414,33 @@ class _PaneContent extends StatelessWidget {
               '${machine.machine.displayName} is offline. Retained output is read only.',
         );
       } else if (agent == null || !agent.terminalAvailable) {
+        // A borrowed tmux pane that closed, or whose tmux server restarted,
+        // stays enrolled until the person unenrolls it; the daemon never
+        // routes it to whatever reuses its pane id.
+        final external = agent != null && agent.isExternal;
         notice = terminalNotice(
           label: 'Unavailable',
           icon: Icons.terminal,
           detail:
               agent?.terminalUnavailableReason ??
               'This agent is unavailable on ${machine.machine.displayName}. Retained output is read only.',
+          // Said out loud: the pane is fine on its machine, only unreachable
+          // from here, and the one thing to do about it is on this tile.
+          banner: external,
+          actionLabel: external ? 'Unenroll' : null,
+          onAction: external
+              ? () => unawaited(
+                  notifier
+                      .unenrollTmuxPane(pane.machineId, agent.id)
+                      .catchError((Object error) {
+                        appLog.warn(
+                          'tmux',
+                          'unenroll ${agent.id} on ${pane.machineId} failed',
+                          error: error,
+                        );
+                      }),
+                )
+              : null,
         );
       } else if (agent.launchState == 'failed') {
         // A resume the daemon could not CONFIRM is not a start that failed: the
@@ -1481,7 +1501,8 @@ class _PaneContent extends StatelessWidget {
           // The same confirmation the rail's row menu opens. Only for an
           // agent the machine still lists — a pane whose agent is already
           // gone has nothing to end.
-          onDelete: agent == null
+          // A borrowed tmux pane has nothing to end: Harness never kills it.
+          onDelete: agent == null || agent.isExternal
               ? null
               : () => confirmDeleteAgent(
                   context,

@@ -128,6 +128,8 @@ import '../widgets/daemon_slot.dart';
 import '../widgets/workspace_quick_start.dart';
 import '../widgets/workspace_start_guide.dart';
 import '../widgets/workspace_welcome.dart';
+import '../widgets/tmux_pane_picker.dart';
+import '../core/tmux_panes.dart';
 import '../shortcuts/keyboard_practice.dart';
 import '../widgets/agent_alert_banners.dart';
 import '../settings/experimental_features.dart';
@@ -2288,6 +2290,10 @@ class _SwarmScreenState extends State<SwarmScreen> {
         .where((agent) => agent.id == pane.agentId)
         .firstOrNull;
     if (agent == null || machine!.machine.isShared) return;
+    if (agent.isExternal) {
+      _showPaneActionHint(_externalPaneHint);
+      return;
+    }
     if (stop) {
       await confirmDeleteAgent(
         context,
@@ -2323,6 +2329,10 @@ class _SwarmScreenState extends State<SwarmScreen> {
       _showPaneActionHint('Shared harnesses are view-only.');
       return;
     }
+    if (_focusedAgent?.isExternal == true) {
+      _showPaneActionHint(_externalPaneHint);
+      return;
+    }
     await restartHarness(
       context,
       app,
@@ -2331,6 +2341,68 @@ class _SwarmScreenState extends State<SwarmScreen> {
       keymap: _keymap,
     );
   });
+  static const _externalPaneHint =
+      'This tmux pane was added from its machine. Close or unenroll it; '
+      'Harness does not stop, restart or rename it.';
+
+  /// The machine whose tmux panes ⇧⌘P › Add tmux Pane lists: the focused
+  /// pane's, else this computer — never a shared or unreachable one.
+  MachineState? _tmuxMachine() {
+    final focused = app.focusedPane;
+    final machine = focused != null
+        ? app.stateOf(focused.machineId)
+        : app.machineStates.values
+              .where((machine) => machine.isLocalMachine)
+              .firstOrNull;
+    return machine == null ||
+            machine.machine.isShared ||
+            machine.needsLink ||
+            machine.nodeOnline == false ||
+            machine.connectionStatus != ConnectionStatus.connected
+        ? null
+        : machine;
+  }
+
+  Future<void> _attachTmuxPane() => _dialog(() async {
+    final machine = _tmuxMachine();
+    if (machine == null) {
+      _showPaneActionHint('Connect a machine to add its tmux panes.');
+      return;
+    }
+    final machineId = machine.machine.machineId;
+    await showTmuxPanePicker(
+      context,
+      machineLabel: machine.machine.displayName,
+      actions: TmuxPanePickerActions(
+        list: () => app.listTmuxPanes(machineId),
+        enroll: (pane, identity) =>
+            app.enrollTmuxPane(machineId, pane, identity),
+        open: (agentId) async {
+          if (app.activeSwarm.isStore) app.newSwarm();
+          await app.assignAgentToPane(
+            null,
+            machineId,
+            agentId,
+            swarmId: app.activeSwarmId,
+          );
+        },
+      ),
+    );
+  });
+
+  /// Forgets the focused borrowed pane. Its tile closes; the tmux pane and
+  /// whatever runs in it keep running on the machine.
+  Future<void> _unenrollTmuxPane() => _dialog(() async {
+    final pane = app.focusedPane;
+    final agent = _focusedAgent;
+    if (pane == null || agent == null || !agent.isExternal) return;
+    try {
+      await app.unenrollTmuxPane(pane.machineId, agent.id);
+    } on TmuxPaneError catch (error) {
+      _showPaneActionHint(error.message);
+    }
+  });
+
   Future<void> _forkAgent() => _dialog(() async {
     final pane = app.focusedPane;
     final agent = _focusedAgent;
@@ -5476,6 +5548,8 @@ class _SwarmScreenState extends State<SwarmScreen> {
     },
     'agent.stop': () => _editAgent(stop: true),
     'agent.fork': _forkAgent,
+    'tmux.attach': () => unawaited(_attachTmuxPane()),
+    'agent.unenroll': () => unawaited(_unenrollTmuxPane()),
     'pane.toggle_viewer': _toggleFocusedViewer,
     'pane.toggle_composer': () {
       if (app.focusedPaneId case final id?) app.toggleComposer(id);
@@ -5536,6 +5610,14 @@ class _SwarmScreenState extends State<SwarmScreen> {
     if (id == 'app.onboarding_review') {
       return app.viewer == null;
     }
+    if (id == 'tmux.attach') return _tmuxMachine() != null;
+    if (id == 'agent.unenroll') {
+      final pane = app.focusedPane;
+      final machine = pane == null ? null : app.stateOf(pane.machineId);
+      return machine != null &&
+          !machine.machine.isShared &&
+          _focusedAgent?.isExternal == true;
+    }
     if (id == 'agent.rename' ||
         id == 'agent.stop' ||
         id == 'agent.fork' ||
@@ -5548,6 +5630,8 @@ class _SwarmScreenState extends State<SwarmScreen> {
       // again, only a fork needs the engine to carry a conversation over.
       return machine != null &&
           !machine.machine.isShared &&
+          // A borrowed tmux pane: open, close and unenroll only.
+          _focusedAgent?.isExternal != true &&
           (id != 'agent.fork' || _focusedAgent?.canFork == true) &&
           (id != 'agent.clone' || _focusedAgent?.canClone == true) &&
           ((id != 'agent.restart' && id != 'agent.clone') ||

@@ -2655,15 +2655,18 @@ class _TerminalHeader extends StatelessWidget {
                           waitDuration: const Duration(milliseconds: 700),
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onDoubleTap: () => unawaited(
-                              showAgentRenameDialog(
-                                context,
-                                notifier,
-                                session.machineId,
-                                session.agentId,
-                                session.agentName,
-                              ),
-                            ),
+                            // A borrowed tmux pane keeps the name tmux gives it.
+                            onDoubleTap: agent?.isExternal == true
+                                ? null
+                                : () => unawaited(
+                                    showAgentRenameDialog(
+                                      context,
+                                      notifier,
+                                      session.machineId,
+                                      session.agentId,
+                                      session.agentName,
+                                    ),
+                                  ),
                             child: Text(
                               session.agentName,
                               key: const ValueKey('terminal-pane-title'),

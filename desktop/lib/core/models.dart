@@ -218,6 +218,86 @@ enum GridWebSearch {
   };
 }
 
+/// A tmux pane Harness borrowed rather than created (cli/src/lib/externalTmux.ts):
+/// the person enrolled it from the machine's own tmux server. Harness may open,
+/// close and unenroll it — never stop, restart, resume, fork, rename, clone or
+/// change its model; the daemon refuses those anyway. No pane id is carried: a
+/// client opens it by agent id, and the daemon checks the pane is still the one
+/// that was enrolled first.
+class AgentExternal {
+  const AgentExternal({
+    this.sessionName,
+    this.windowIndex,
+    this.paneIndex,
+    this.windowName,
+    this.command,
+    required this.available,
+    this.reason,
+  });
+
+  final String? sessionName;
+  final int? windowIndex;
+  final int? paneIndex;
+  final String? windowName;
+  final String? command;
+
+  /// The daemon's last verified answer; opening checks again.
+  final bool available;
+
+  /// The daemon's machine-readable why-not (`TMUX_SERVER_RESTARTED`, ...).
+  final String? reason;
+
+  /// `session:window.pane`, or null until the daemon has seen the pane live.
+  String? get address => sessionName == null
+      ? null
+      : '$sessionName:${windowIndex ?? '?'}.${paneIndex ?? '?'}';
+
+  static AgentExternal? fromJson(Object? raw) {
+    if (raw is! Map || raw['kind'] != 'tmux') return null;
+    String? text(String key) {
+      final value = raw[key];
+      return value is String && value.isNotEmpty ? value : null;
+    }
+
+    int? index(String key) {
+      final value = raw[key];
+      return value is int && value >= 0 ? value : null;
+    }
+
+    return AgentExternal(
+      sessionName: text('sessionName'),
+      windowIndex: index('windowIndex'),
+      paneIndex: index('paneIndex'),
+      windowName: text('windowName'),
+      command: text('command'),
+      available: raw['available'] == true,
+      reason: text('reason'),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AgentExternal &&
+      other.sessionName == sessionName &&
+      other.windowIndex == windowIndex &&
+      other.paneIndex == paneIndex &&
+      other.windowName == windowName &&
+      other.command == command &&
+      other.available == available &&
+      other.reason == reason;
+
+  @override
+  int get hashCode => Object.hash(
+    sessionName,
+    windowIndex,
+    paneIndex,
+    windowName,
+    command,
+    available,
+    reason,
+  );
+}
+
 /// Data-plane agent (RPC agents_list).
 /// Where a forked agent came from — see [Agent.forkedFrom].
 class ForkedFrom {
@@ -427,6 +507,9 @@ class Agent {
   /// or null for a general session.
   final String? namedAgent;
 
+  /// A borrowed tmux pane's enrollment, or null for every agent Harness launched.
+  final AgentExternal? external;
+
   const Agent({
     required this.id,
     this.sessionId,
@@ -469,9 +552,14 @@ class Agent {
     this.permissionMode,
     this.bypassPermission,
     this.namedAgent,
+    this.external,
   });
 
   bool get isStopped => status == 'stopped';
+
+  /// A tmux pane the person enrolled (see [AgentExternal]): open, close and
+  /// unenroll only.
+  bool get isExternal => external != null;
 
   /// Exact saved-conversation resume is currently implemented for these engines.
   bool get canResumeConversation =>
@@ -492,7 +580,8 @@ class Agent {
   /// same reason `'claude'`/`'codex'` are above: this is the model layer and
   /// does not reach into the widgets.
   bool get canPauseAndResume =>
-      resumeMode != null || engine == 'terminal' || canResumeConversation;
+      !isExternal &&
+      (resumeMode != null || engine == 'terminal' || canResumeConversation);
 
   /// Whether resuming this harness opens a NEW conversation rather than the one
   /// it was paused in — either because the engine has no resume argv (`fresh`),
@@ -517,12 +606,13 @@ class Agent {
   /// Whether to offer Fork for this agent at all. Devin, Cursor and the rest
   /// can neither fork nor open with a message, so the button is not drawn
   /// rather than drawn and refused.
-  bool get canFork => forkable ?? forkableEngines.contains(engine);
+  bool get canFork =>
+      !isExternal && (forkable ?? forkableEngines.contains(engine));
 
   /// Whether Clone (⌘⇧N) can open another of this agent — any engine, but not
   /// one on a grid: the frame carries the grid's model and never its launch
   /// key, so a clone would silently land on the engine's own login instead.
-  bool get canClone => engine != null && gridModel == null;
+  bool get canClone => !isExternal && engine != null && gridModel == null;
 
   /// What to draw this agent AS: its harness when it has one, else its engine.
   String? get identityEngine => dsh ?? engine;
@@ -619,6 +709,7 @@ class Agent {
           ? j['bypassPermission'] as bool
           : null,
       namedAgent: _safeNamedAgent(j['namedAgent']),
+      external: AgentExternal.fromJson(j['external']),
     );
   }
 
@@ -670,6 +761,7 @@ class Agent {
     permissionMode: permissionMode,
     bypassPermission: bypassPermission,
     namedAgent: namedAgent,
+    external: external,
   );
 
   /// A mode id as `PERMISSION_MODES` spells them (`acceptEdits`, `readOnly`):
