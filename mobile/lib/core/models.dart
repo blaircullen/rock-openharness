@@ -123,6 +123,32 @@ final _automaticHarnessName = RegExp(
 bool isAutomaticHarnessName(String name) =>
     _automaticHarnessName.hasMatch(name);
 
+class ExternalTmuxPane {
+  const ExternalTmuxPane({this.sessionName, this.windowIndex, this.paneIndex});
+
+  final String? sessionName;
+  final int? windowIndex;
+  final int? paneIndex;
+
+  String? get address =>
+      sessionName == null || windowIndex == null || paneIndex == null
+      ? null
+      : '$sessionName:$windowIndex.$paneIndex';
+
+  static ExternalTmuxPane? fromJson(Object? value) {
+    if (value is! Map || value['kind'] != 'tmux') return null;
+    return ExternalTmuxPane(
+      sessionName: value['sessionName'] is String
+          ? value['sessionName'] as String
+          : null,
+      windowIndex: value['windowIndex'] is int
+          ? value['windowIndex'] as int
+          : null,
+      paneIndex: value['paneIndex'] is int ? value['paneIndex'] as int : null,
+    );
+  }
+}
+
 class Agent {
   final String id;
   final String? sessionId;
@@ -204,6 +230,10 @@ class Agent {
   /// the field.
   final String? resumeMode;
 
+  /// A pane enrolled from the machine's tmux server, identified only by the daemon's marker.
+  final ExternalTmuxPane? external;
+  bool get isExternal => external != null;
+
   const Agent({
     required this.id,
     this.sessionId,
@@ -232,6 +262,7 @@ class Agent {
     this.tokensUpdatedAt,
     this.outputStats,
     this.resumeMode,
+    this.external,
   });
 
   factory Agent.fromJson(Map<String, dynamic> j) {
@@ -300,6 +331,7 @@ class Agent {
           : null,
       outputStats: AgentOutputStats.fromJson(j['outputStats']),
       resumeMode: _safeResumeMode(j['resumeMode']),
+      external: ExternalTmuxPane.fromJson(j['external']),
     );
   }
 
@@ -331,6 +363,7 @@ class Agent {
     tokensUpdatedAt: tokensUpdatedAt,
     outputStats: outputStats,
     resumeMode: resumeMode,
+    external: external,
   );
 
   /// Saved work the daemon is no longer running, as the desktop's [Agent] reads

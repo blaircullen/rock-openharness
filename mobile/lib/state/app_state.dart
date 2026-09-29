@@ -26,6 +26,7 @@ import '../core/last_opened_agent.dart';
 import '../core/phone_search_history.dart';
 import '../core/machine_cache.dart';
 import '../core/models.dart';
+import '../core/tmux_panes.dart';
 import '../core/project_folder.dart';
 import '../core/project_history.dart';
 import '../core/retry.dart';
@@ -3899,6 +3900,93 @@ class AppNotifier extends ChangeNotifier {
     return null;
   }
 
+  Future<Map<String, dynamic>> _tmuxRequest(
+    String machineId,
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    final machine = stateOf(machineId);
+    if (machine == null ||
+        machine.needsLink ||
+        machine.connectionStatus != ConnectionStatus.connected) {
+      throw const TmuxPaneError(
+        'NOT_CONNECTED',
+        'Connect to this machine and try again.',
+      );
+    }
+    try {
+      final reply = await _conn(
+        machineId,
+      ).request(type, payload: payload, timeout: const Duration(seconds: 10));
+      if (reply['error'] != null) throw TmuxPaneError.fromReply(reply);
+      return reply;
+    } on WsRequestFailure catch (failure) {
+      throw TmuxPaneError.fromReply({
+        'error': failure.code,
+        'detail': failure.detail,
+      });
+    } on WsRequestTimeout {
+      throw const TmuxPaneError(
+        'TIMEOUT',
+        'The machine did not answer. Try again.',
+      );
+    }
+  }
+
+  Future<TmuxPaneListing> listTmuxPanes(String machineId) async =>
+      TmuxPaneListing.fromJson(
+        await _tmuxRequest(machineId, 'tmux_panes_list', const {}),
+      );
+
+  Future<Agent> enrollTmuxPane(
+    String machineId,
+    TmuxPane pane,
+    String serverIdentity,
+  ) async {
+    final machine = stateOf(machineId);
+    if (!pane.canEnroll || machine == null) {
+      throw const TmuxPaneError('INVALID_PANE', 'This pane cannot be added.');
+    }
+    final reply = await _tmuxRequest(machineId, 'tmux_pane_enroll', {
+      'paneId': pane.paneId,
+      'serverIdentity': serverIdentity,
+    });
+    final raw = reply['agent'];
+    if (raw is! Map || raw['id'] is! String) {
+      throw const TmuxPaneError('BAD_REPLY', 'The machine sent no terminal.');
+    }
+    final agent = Agent.fromJson(Map<String, dynamic>.from(raw));
+    if (!agent.isExternal) {
+      throw const TmuxPaneError(
+        'BAD_REPLY',
+        'The machine did not confirm a borrowed pane.',
+      );
+    }
+    if (_disposed || machineStates[machineId] != machine) {
+      throw const TmuxPaneError('NOT_CONNECTED', 'The machine went away.');
+    }
+    _upsertAgent(machine, agent);
+    notifyListeners();
+    return agent;
+  }
+
+  Future<void> unenrollTmuxPane(String machineId, String agentId) async {
+    final machine = stateOf(machineId);
+    if (machine == null ||
+        !machine.agents.any(
+          (agent) => agent.id == agentId && agent.isExternal,
+        )) {
+      throw const TmuxPaneError(
+        'NOT_ENROLLED',
+        'This tmux pane is no longer enrolled.',
+      );
+    }
+    await _tmuxRequest(machineId, 'tmux_pane_unenroll', {'agentId': agentId});
+    if (_disposed || machineStates[machineId] != machine) return;
+    await _removeAgent(machine, agentId);
+    notifyListeners();
+  }
+
   /// Renames an agent via `agent_update`. Returns null on success, or an error message to show
   /// inline in the caller's dialog.
   Future<String?> renameAgent(
@@ -3908,6 +3996,9 @@ class AppNotifier extends ChangeNotifier {
   ) async {
     final machine = machineStates[machineId];
     if (machine == null) return 'Machine not found';
+    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
+      return 'Borrowed tmux panes cannot be renamed.';
+    }
     final trimmed = name.trim();
     if (trimmed.isEmpty) return 'Name cannot be empty';
     Map<String, dynamic> result;
@@ -3960,6 +4051,9 @@ class AppNotifier extends ChangeNotifier {
   Future<String?> deleteAgent(String machineId, String agentId) async {
     final machine = machineStates[machineId];
     if (machine == null) return 'Machine not found';
+    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
+      return 'Use Remove from Harness for a borrowed tmux pane.';
+    }
     Map<String, dynamic> result;
     try {
       result = await _conn(machineId)
@@ -4004,6 +4098,9 @@ class AppNotifier extends ChangeNotifier {
     final agent = machine?.agents
         .where((agent) => agent.id == agentId)
         .firstOrNull;
+    if (agent?.isExternal == true) {
+      return Future.value(const RestartAgentResult(error: 'A borrowed tmux pane cannot be resumed.'));
+    }
     if (agent?.terminalAvailable == true) {
       return Future.value(const RestartAgentResult());
     }
@@ -4152,6 +4249,9 @@ class AppNotifier extends ChangeNotifier {
     if (machine == null) {
       return const RestartAgentResult(error: 'Machine not found');
     }
+    if (machine.agents.any((agent) => agent.id == agentId && agent.isExternal)) {
+      return const RestartAgentResult(error: 'A borrowed tmux pane cannot be restarted.');
+    }
     Map<String, dynamic> result;
     try {
       result = await _conn(machineId)
@@ -4282,6 +4382,9 @@ class AppNotifier extends ChangeNotifier {
     String agentId,
     Map<String, dynamic> payload,
   ) async {
+    if (machineStates[machineId]?.agents.any((agent) => agent.id == agentId && agent.isExternal) == true) {
+      return 'A borrowed tmux pane cannot change models.';
+    }
     try {
       await _conn(machineId).request(
         'agent_retarget',

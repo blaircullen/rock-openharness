@@ -10,6 +10,7 @@ import 'package:harness_mobile/shared/widgets/empty_state.dart';
 import 'package:harness_mobile/state/app_state.dart';
 
 import 'agent_tile.dart';
+import 'borrowed_pane_actions.dart';
 import 'delete_agent.dart';
 import 'link_page.dart';
 import 'phone_card.dart';
@@ -260,20 +261,28 @@ Future<void> showAgentActions(
   AppNotifier notifier,
   String machineId,
   Agent agent,
-) => showPhoneSheet(
-  context,
-  title: agent.displayName,
-  actions: [
-    PhoneSheetAction(
-      icon: LucideIcons.trash2300,
-      label: 'Stop Harness…',
-      destructive: true,
-      onTap: () => unawaited(
-        confirmDeleteAgent(context, notifier, machineId, agent.id, agent.name),
-      ),
-    ),
-  ],
-);
+) => agent.isExternal
+    ? showBorrowedPaneActions(context, notifier, machineId, agent)
+    : showPhoneSheet(
+        context,
+        title: agent.displayName,
+        actions: [
+          PhoneSheetAction(
+            icon: LucideIcons.trash2300,
+            label: 'Stop Harness…',
+            destructive: true,
+            onTap: () => unawaited(
+              confirmDeleteAgent(
+                context,
+                notifier,
+                machineId,
+                agent.id,
+                agent.name,
+              ),
+            ),
+          ),
+        ],
+      );
 
 /// The one way into [NewAgentPage] — every door to the form comes through here rather than
 /// drifting into several ways of opening it.

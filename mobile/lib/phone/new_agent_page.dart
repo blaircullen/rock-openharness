@@ -24,6 +24,7 @@ import 'phone_status.dart';
 import 'new_agent_chooser.dart';
 import 'tty.dart';
 import 'tty_controls.dart';
+import 'tmux_pane_picker.dart';
 import 'voice_input_controller.dart';
 
 /// Starting an agent from the phone: a folder on that machine, and an engine to
@@ -786,6 +787,19 @@ class _NewAgentPageState extends State<NewAgentPage> {
                     ),
                   ),
                 const SizedBox(height: 8),
+                if (!typing && !_creating)
+                  TtyFormRow(
+                    label: 'tmux',
+                    value: 'Add existing pane',
+                    onTap: () => Navigator.of(context).push(
+                      phoneRoute(
+                        (_) => TmuxPanePicker(
+                          notifier: widget.notifier,
+                          machineId: widget.machineId,
+                        ),
+                      ),
+                    ),
+                  ),
                 if (typing)
                   TtyFormRow(
                     label: 'harness',

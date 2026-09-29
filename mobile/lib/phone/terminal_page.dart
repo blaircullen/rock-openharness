@@ -41,6 +41,7 @@ import 'agents_page.dart' show openNewAgent;
 import 'daemon_chip.dart';
 import 'daemon_scope.dart';
 import 'delete_agent.dart';
+import 'borrowed_pane_actions.dart';
 import 'held_height.dart';
 import 'phone_sheet.dart';
 import 'phone_status.dart';
@@ -2092,8 +2093,11 @@ class _TerminalPageState extends State<TerminalPage>
                           children: [
                             TerminalTitle(
                               sample: SampleMode.maybeOf(context) != null,
-                              name:
-                                  agent?.displayName ?? _cachedAgentName ?? '',
+                              name: agent?.isExternal == true
+                                  ? '${agent!.displayName} · tmux'
+                                  : agent?.displayName ??
+                                        _cachedAgentName ??
+                                        '',
                               place: _placeOf(agent, machine),
                               branch:
                                   agent?.gitContext?.branchLabel ??
@@ -2325,6 +2329,15 @@ class _TerminalPageState extends State<TerminalPage>
   }
 
   void _showActions({required String machineName, required Agent agent}) {
+    if (agent.isExternal) {
+      showBorrowedPaneActions(
+        context,
+        widget.notifier,
+        widget.machineId,
+        agent,
+      );
+      return;
+    }
     final agentName = agent.displayName;
     showPhoneSheet(
       context,

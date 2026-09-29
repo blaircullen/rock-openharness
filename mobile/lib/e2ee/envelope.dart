@@ -37,6 +37,9 @@ const Set<String> encryptedDownTypes = {
   'agent_read_file',
   'fs_list_dir',
   'project_preview',
+  'tmux_panes_list',
+  'tmux_pane_enroll',
+  'tmux_pane_unenroll',
   // The branches of a folder on that machine, for the New Harness form
   // (`AppNotifier.readGitProject`).
   //

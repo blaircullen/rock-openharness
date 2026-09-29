@@ -378,7 +378,7 @@ class PhoneSearchResultsState extends State<PhoneSearchResults> {
           ? 'current'
           : fzfAge(entry.agent.updatedAt, now),
       detailColor: question != null && entry.isWaiting ? tty.text : null,
-      state: state.word,
+      state: entry.agent.isExternal ? 'tmux' : state.word,
       stateColor: state.color,
       terms: terms,
       selected: selected,

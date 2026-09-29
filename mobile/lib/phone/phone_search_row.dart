@@ -117,14 +117,30 @@ class _PhoneSearchRowState extends State<PhoneSearchRow> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SearchResultText(
-                      row.title,
-                      matches: matches.where((match) => match.title),
-                      style: phoneBoxMonoStyle(
-                        size: 14,
-                        color: AppPalette.textPrimary,
-                        weight: FontWeight.w500,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: SearchResultText(
+                            row.title,
+                            matches: matches.where((match) => match.title),
+                            style: phoneBoxMonoStyle(
+                              size: 14,
+                              color: AppPalette.textPrimary,
+                              weight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        if (row.entry?.agent.isExternal == true) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            'tmux',
+                            style: TextStyle(
+                              color: AppPalette.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 3),
                     _detail(row, matches),
