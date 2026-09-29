@@ -354,7 +354,7 @@ class _AgentHomeState extends State<AgentHome> {
     // Every other machine may be up and loaded while the one holding the remembered agent is still
     // dialling — without this the wait would draw as "No agents yet".
     if (_waitingForRestore) return 'Connecting to your machine…';
-    if (_waitingForDesk) return 'Opening your tabs…';
+    if (_waitingForDesk) return 'Opening your swarms…';
     return null;
   }
 

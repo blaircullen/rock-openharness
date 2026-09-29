@@ -89,7 +89,11 @@ class _Notifier extends AppNotifier {
   /// The machine's side of an install: a fresh run, then whatever the test
   /// narrates through [narrate], then [pendingInstall]'s answer.
   @override
-  Future<String?> installDsh(String machineId, String id) async {
+  Future<String?> installDsh(
+    String machineId,
+    String id, {
+    bool trustUnverified = false,
+  }) async {
     installs.add(id);
     final machine = machineStates[machineId]!;
     machine.dsh.runs.remove(id);

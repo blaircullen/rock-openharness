@@ -42,6 +42,7 @@ mod term_out;
 mod term_input;
 mod tmuxconf;
 mod ui;
+mod viewer;
 
 use std::io::{self, BufWriter, Write};
 use std::time::{Duration, Instant};
@@ -312,6 +313,24 @@ async fn run(config: config::Config) -> io::Result<()> {
             } else { cli::has_session_named(f.name.as_deref(), &t) };
             if !found { if !ipc::alive(f.socket.as_deref(), f.name.as_deref()) { eprintln!("can't find session: {t}") } std::process::exit(1) }
         }
+    }
+    // Refuse to start a client from inside an existing multiplexer session —
+    // as tmux itself does. Without this, `hn` (and `harness tui`, which wraps
+    // `hn`) opened inside a pane stacks a whole TUI on top of the parent's
+    // screen; when the parent multiplexer is hn, the recursion keeps going
+    // until the process tree gives up, and when it's a real tmux (for
+    // instance, the tmux backend that Harness Desktop uses to host its
+    // terminals), the pane borders and status bars overlap into a cascade
+    // that reads as an infinite loop to the user.
+    //
+    // Follow tmux's own rule: any $TMUX at all is a nested-client signal.
+    // The message and the escape hatch stay tmux's exact wording so muscle
+    // memory carries over: `TMUX= hn` (or `unset TMUX; hn`) bypasses when the
+    // caller truly wants a nested client, matching tmux's `unset $TMUX to
+    // force`.
+    if std::env::var("TMUX").ok().filter(|t| !t.is_empty()).is_some() {
+        eprintln!("sessions should be nested with care, unset $TMUX to force");
+        std::process::exit(1);
     }
     if !io::IsTerminal::is_terminal(&io::stdout()) { eprintln!("open terminal failed: not a terminal"); std::process::exit(1) }
     // A terminal that cannot clear its screen (dumb, or none named) is refused as tmux refuses it.

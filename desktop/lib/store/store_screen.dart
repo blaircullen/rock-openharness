@@ -7,7 +7,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:harness/terminal/terminal_text.dart';
 
-import '../analytics/analytics.dart';
 import '../core/dsh_catalog.dart';
 import '../core/harness_catalog.dart';
 import '../core/models.dart' show ConnectionStatus;
@@ -167,7 +166,6 @@ class _StoreTabState extends State<StoreTab> {
   void initState() {
     super.initState();
     _remember();
-    analytics.screenView('store', source: widget.source);
     // Deferred a frame: both calls notify listeners at once, and this screen
     // is built while the shell underneath — which listens to the same
     // notifier — is mid-build.
@@ -379,7 +377,6 @@ class _StoreTabState extends State<StoreTab> {
   void _show(_Shelf shelf) => _navigate(_StoreVisit(shelf, null, ''));
 
   void _openPage(String id) {
-    analytics.screenView('store_harness', source: 'store');
     _navigate(_StoreVisit(_shelf, id, _search.text));
   }
 
@@ -640,7 +637,7 @@ class _StoreNav extends StatelessWidget {
                     key: const ValueKey('store-shelf-sessions'),
                     icon: LucideIcons.play300,
                     label: 'Featured',
-                    tooltip: '$sessionCount recorded sessions',
+                    tooltip: '$sessionCount recorded runs',
                     selected: !hasProduct && shelf is _Sessions,
                     onTap: () => onSelect(const _Sessions()),
                   ),
@@ -988,11 +985,15 @@ class _ProductPageState extends State<_ProductPage> {
     // An engine is installed by the daemon on the way to the first harness
     // that needs it (`installIfMissing` on create), so Get is Open.
     if (widget.entry.isEngine) return _open(machineId);
-    if (!_busy.add(machineId)) return;
+    if (_busy.contains(machineId)) return;
+    final trusted = _unverified(local);
+    if (trusted && !await _confirmUnverified(local, update: false)) return;
+    if (!mounted || !_busy.add(machineId)) return;
     setState(() {});
     final failure = await widget.notifier.installDsh(
       machineId,
       _operationId(local, widget.entry.id),
+      trustUnverified: trusted,
     );
     _busy.remove(machineId);
     if (mounted) setState(() {});
@@ -1015,17 +1016,53 @@ class _ProductPageState extends State<_ProductPage> {
     if (local == null ||
         local.machine.machineId != machineId ||
         _machineHarness(local, widget.entry.id)?.hasUpdate != true ||
-        !_busy.add(machineId)) {
+        _busy.contains(machineId)) {
       return;
     }
+    final trusted = _unverified(local);
+    if (trusted && !await _confirmUnverified(local, update: true)) return;
+    if (!mounted || !_busy.add(machineId)) return;
     setState(() {});
     final failure = await widget.notifier.updateDsh(
       machineId,
       _operationId(local, widget.entry.id),
+      trustUnverified: trusted,
     );
     _busy.remove(machineId);
     if (mounted) setState(() {});
     if (failure != null) _say(_failureSentence(local, failure));
+  }
+
+  /// Harness has not reviewed this package ([DshEntry.unverified]), on the
+  /// machine's word or the page's.
+  bool _unverified(MachineState local) =>
+      widget.entry.unverified ||
+      _machineHarness(local, widget.entry.id)?.unverified == true;
+
+  /// Asks before a package Harness has not reviewed is installed or updated:
+  /// both run its setup script as the person, and Update fetches whatever its
+  /// repository holds now. True only when they confirm.
+  Future<bool> _confirmUnverified(
+    MachineState local, {
+    required bool update,
+  }) async {
+    final source =
+        _machineHarness(local, widget.entry.id)?.repo ??
+        widget.entry.repo ??
+        'its own repository';
+    final ok = await showAppDialog<bool>(
+      context: context,
+      builder: (context) => _ConfirmCard(
+        title: 'Harness has not reviewed ${widget.entry.name}',
+        detail:
+            'Its code comes from $source, not from Harness. '
+            '${update ? 'Updating fetches its latest code and runs its setup script again' : 'Installing runs its setup script'} '
+            'on ${local.machine.displayName} as you, with access to your files '
+            'and credentials. Continue only if you trust its author.',
+        action: update ? 'Update anyway' : 'Install anyway',
+      ),
+    );
+    return ok == true && mounted;
   }
 
   Future<void> _remove(String machineId, String machineName) async {

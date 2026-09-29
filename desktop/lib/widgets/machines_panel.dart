@@ -841,7 +841,10 @@ class _MachinesPanelState extends State<_MachinesPanel>
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: .35),
+                    // A 35% black pool is a smudge on a light palette.
+                    color: Colors.black.withValues(
+                      alpha: grid.AppTheme.pick(.12, .35),
+                    ),
                     blurRadius: 36,
                     offset: const Offset(0, 12),
                   ),

@@ -20,7 +20,7 @@ import type { AutonomousDeviceService, AutonomousDeviceFrame } from './lib/auton
  */
 
 import { WebSocket } from 'ws'
-import { watchSocketLiveness, type LivenessWatch } from './lib/wsLiveness.js'
+import { BACKEND_IDLE_DEADLINE_MS, watchSocketLiveness, type LivenessWatch } from './lib/wsLiveness.js'
 import { stat, readFile, readdir } from 'fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'path'
@@ -65,11 +65,12 @@ import { OrchestratorService } from './orchestrator/service.js'
 import { OrchestratorError } from './orchestrator/model.js'
 import { orchestratorRequest } from './orchestrator/wire.js'
 import { TeamService } from './teams/service.js'
+import { SwarmPromptScopes } from './teams/promptScope.js'
 import { ChannelDirectory } from './teams/channels.js'
 import { TeamMailbox } from './teams/mailbox.js'
 import { teamRequest, teamDeliveryRequest, TEAM_REQUEST_TYPES, teamFailure } from './teams/wire.js'
 import { teamRpc } from './teams/client.js'
-import { Address, Id, Receipt, TeamError, type MemberRuntime } from './teams/model.js'
+import { Address, Id, OperationId, Receipt, TeamError, type MemberRuntime } from './teams/model.js'
 import { shellQuote } from './orchestrator/prompts.js'
 import type { SessionInputDelivery } from './lib/sessionInput.js'
 import type { QuestionAnswerResult } from './lib/askQuestion.js'
@@ -573,6 +574,7 @@ export class BackendSocket {
   teamStateDir = join(env.ADAPTER_DATA_DIR, 'teams')
   teamCommand: string | null = null
   private teamService: TeamService | null = null
+  readonly swarmPromptScopes = new SwarmPromptScopes()
   private teamMailboxService: TeamMailbox | null = null
   readChannelDesk: (() => Promise<unknown>) | null = null
   writeChannelSettings: ((enabled: boolean) => Promise<unknown>) | null = null
@@ -614,6 +616,17 @@ export class BackendSocket {
   private teams(): TeamService {
     return this.teamService ??= new TeamService({
       stateDir: join(this.teamStateDir, 'ledgers'), machineId: this.machineId,
+      taskScope: async address => {
+        if (address.machineId === this.machineId) return this.swarmPromptScopes.current(address.agentId)
+        const result = await teamRpc({ port: env.PORT, machineId: address.machineId, dataDir: env.ADAPTER_DATA_DIR },
+          'team_delivery', { action: 'prompt_scope', agentId: address.agentId })
+        return typeof result.teamId === 'string' ? result.teamId : null
+      },
+      questionReplied: async (address, teamId, questionId) => {
+        if (address.machineId === this.machineId) this.swarmPromptScopes.replied(address.agentId, teamId, questionId)
+        else await teamRpc({ port: env.PORT, machineId: address.machineId, dataDir: env.ADAPTER_DATA_DIR },
+          'team_delivery', { action: 'prompt_replied', agentId: address.agentId, teamId, questionId })
+      },
       command: address => address.machineId === this.machineId
         ? this.teamCommand ?? `${[process.execPath, ...process.execArgv, process.argv[1]].map(shellQuote).join(' ')} team --port ${env.PORT}`
         : 'harness team',
@@ -718,7 +731,7 @@ export class BackendSocket {
    */
   externalTmux: Pick<ExternalTmuxController, 'list' | 'enroll' | 'unenroll' | 'status' | 'rows'> | null = null
   /** Called when the web/device sends chat input to an agent terminal. */
-  onMessage: ((sessionId: string, content: string, deliveryId?: string) => void) | null = null
+  onMessage: ((sessionId: string, content: string, deliveryId?: string, tabId?: string) => void) | null = null
   /** Best-effort terminal-native title sync after a user renames an agent. */
   onAgentRename: ((session: RegisteredSession, name: string) => void) | null = null
   /** Called when a device answers an AskUserQuestion (`question_response`) — cli.ts drives the CLI's own
@@ -1066,6 +1079,8 @@ export class BackendSocket {
 
       this.heartbeat = watchSocketLiveness(ws, {
         onIdle: (idleMs) => console.log(`[backend] no traffic for ${Math.round(idleMs / 1000)}s — terminating the link`),
+        onWake: (sleptMs, hungUp) => console.log(`[backend] woke after ${Math.round(sleptMs / 1000)}s asleep — ${hungUp ? 'the backend has hung up, redialing' : 're-probing the link'}`),
+        peerGivesUpAfterMs: BACKEND_IDLE_DEADLINE_MS,
       })
 
       // App-level ping refreshes the backend's presence key (TTL 30s). The window's presence rides
@@ -1907,12 +1922,21 @@ export class BackendSocket {
       }
       void Promise.resolve().then(async () => {
         if (type === 'team') {
+          if (payload.action === 'context') {
+            const agentId = Id.parse(payload.agentId)
+            return this.channels().taskContext(agentId, this.swarmPromptScopes.current(agentId))
+          }
           if (String(payload.action).startsWith('channel_')) return this.channels().request(payload)
           if (typeof payload.teamId === 'string' && this.teams().isChannel(payload.teamId)
               && ['ask', 'get', 'members'].includes(String(payload.action))) await this.channels().refresh(payload.action === 'ask')
           return teamRequest(this.teams(), payload)
         }
         if (payload.action === 'runtime') return { runtime: this.localTeamRuntime(Id.parse(payload.agentId)) }
+        if (payload.action === 'prompt_scope') return { teamId: this.swarmPromptScopes.current(Id.parse(payload.agentId)) }
+        if (payload.action === 'prompt_replied') {
+          this.swarmPromptScopes.replied(Id.parse(payload.agentId), OperationId.parse(payload.teamId), OperationId.parse(payload.questionId))
+          return { ok: true }
+        }
         return teamDeliveryRequest(this.teamMailbox(), payload)
       }).then(result => reply(type, requestId, result)).catch(error => reply(type, requestId, teamFailure(error)))
       return
@@ -3151,7 +3175,11 @@ export class BackendSocket {
           // to the web (mirror-all) — no synthetic events here. Prefer cli.ts's handler (inject + Enter
           // retry); fall back to a direct inject when unwired (isolation/tests). From the relay this is
           // only reached sealed: text typed into an agent is never taken from the relay in the clear.
-          if (this.onMessage) this.onMessage(target, content)
+          const tabId = Id.safeParse(payload.tabId)
+          if (this.onMessage) {
+            if (tabId.success) this.onMessage(target, content, undefined, tabId.data)
+            else this.onMessage(target, content)
+          }
           else console.warn('[backend] message handler is not wired; terminal input was not dispatched')
           return
         }

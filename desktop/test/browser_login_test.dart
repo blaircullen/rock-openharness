@@ -136,6 +136,40 @@ void main() {
     }
   });
 
+  test('sign-in preserves the exact private viewer destination', () async {
+    const destination = '/?viewer=1&machine=server-1&agent=blender%20model';
+    browser.uri = Uri.parse('https://harness.example$destination');
+    final pending = login.login(onAuthorizeUrl: (_) {});
+    final cancelled = expectLater(pending, throwsA(isA<DirectAuthException>()));
+    api.authorization.complete((
+      authorizeUrl: Uri.https('sso.example', '/authorize', {
+        'state': 'expected',
+        'redirect_uri': 'https://harness.example/auth/callback',
+      }).toString(),
+      tx: 'transaction',
+    ));
+    await Future<void>.delayed(Duration.zero);
+    final saved = browser.transaction!;
+    expect(jsonDecode(saved)['returnTo'], destination);
+    login.cancel();
+    await cancelled;
+    browser.transaction = saved;
+    browser.uri = Uri.parse(
+      'https://harness.example/auth/callback?state=expected&code=one-use',
+    );
+    final status = login.checkStatus();
+    await Future<void>.delayed(Duration.zero);
+    expect(browser.uri.toString(), 'https://harness.example$destination');
+    api.exchanged.complete(
+      const IssuedTokens(
+        token: 'access',
+        refreshToken: 'refresh',
+        expiresIn: 3600,
+      ),
+    );
+    expect((await status).loggedIn, isTrue);
+  });
+
   test(
     'authorization stays in this tab and cancellation discards its transaction',
     () async {

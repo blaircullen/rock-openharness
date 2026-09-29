@@ -549,7 +549,7 @@ class _ShareHarnessDialogState extends State<ShareHarnessDialog> {
           terminalThemeStore.value,
         );
         final style = terminalContentStyle(color: theme.foreground);
-        final muted = theme.foreground.withValues(alpha: .54);
+        final muted = theme.muted;
         Widget surface(Key key, Widget child) => Material(
           key: key,
           color: theme.background,
@@ -908,7 +908,7 @@ class _ShareHarnessDialogState extends State<ShareHarnessDialog> {
             choice('Public', 1, () => unawaited(_chooseVisibility(1))),
             note('Anyone with the link can view. Sign in to comment.'),
             SizedBox(height: _line),
-            note('Viewers cannot control your agent.'),
+            note('Viewers cannot control your harness.'),
           ],
           if (_row == _ShareRow.expiry) ...[
             for (var i = 0; i < 3; i++)
@@ -971,7 +971,7 @@ class _ShareHarnessDialogState extends State<ShareHarnessDialog> {
               ),
               SizedBox(height: _line),
             ],
-            note('Viewers can comment; they cannot control your agent.'),
+            note('Viewers can comment; they cannot control your harness.'),
           ],
           if (_row == _ShareRow.comments) note('Enter to open the discussion.'),
           if (_picking) ..._messageWidgets(foreground),

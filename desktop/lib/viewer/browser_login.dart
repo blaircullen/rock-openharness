@@ -6,6 +6,7 @@ import '../auth/sign_in_client.dart';
 import 'direct_auth.dart';
 import 'direct_auth_api.dart';
 import '../sharing/shared_agent_location.dart';
+import 'viewer_location.dart';
 
 /// Browser-only operations behind a seam so OAuth can be tested without a
 /// browser, a real account, or opening an authorization page.
@@ -71,7 +72,9 @@ class BrowserLogin implements SignInClient {
             'This sign-in expired or started in another tab. Sign in again.',
           );
         }
-        final returnTo = SharedAgentLocation.returnPath(saved['returnTo']);
+        final returnTo =
+            SharedAgentLocation.returnPath(saved['returnTo']) ??
+            ViewerLocation.returnPath(saved['returnTo']);
         if (returnTo != null) browser.replaceLocation(returnTo);
         if (uri.queryParameters.containsKey('error')) {
           throw const DirectAuthException(
@@ -138,7 +141,8 @@ class BrowserLogin implements SignInClient {
       'tx': start.tx,
       'state': state,
       'createdAt': _clock().millisecondsSinceEpoch,
-      if (SharedAgentLocation.parse(location) != null)
+      if (SharedAgentLocation.parse(location) != null ||
+          ViewerLocation.parse(location) != null)
         'returnTo': Uri(
           path: location.path,
           query: location.hasQuery ? location.query : null,

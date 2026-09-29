@@ -6,11 +6,20 @@ experience.** Linux builds exist, with feature parity still in progress; Windows
 planned and its runner is unexercised. Native embedded harness viewers require macOS;
 the browser renders managed viewers on their connected machine.
 
-The browser target uses this same Flutter package and `lib/main.dart`: workspace,
-tabs, pickers, settings, state, and the patched xterm renderer are shared. Browser
-support is available as a public preview at
-[harness.autonomous.ai](https://harness.autonomous.ai); there is no separate web UI
-to keep in sync.
+`hn view` can open a viewer companion at `/?viewer=1&machine=<id>&agent=<id>`.
+This owner-only destination uses normal sign-in and machine linking. It does not restore or
+save the workspace, join the shared desk, or attach a terminal. OAuth returns to the same
+viewer after sign-in. The existing website root rewrite serves it without a new route.
+Publish the browser build before the corresponding native hn release so the entry point
+recognizes the viewer destination.
+
+The browser target uses this same Flutter package: swarms, pickers, settings, state and
+the patched xterm renderer are shared. `lib/main.dart` picks the browser's workspace at
+compile time (a conditional import of `lib/web/web_entry.dart`), composed for a mouse:
+every action desktop keeps in its native menus is clickable (keys still work, they are
+just not the way in). Browser-only UI lives in `lib/web/`, and desktop never imports it.
+Browser support is available as a public preview at
+[harness.autonomous.ai](https://harness.autonomous.ai).
 
 ## Web development
 
@@ -50,7 +59,6 @@ comma-separated `WEB_ORIGINS`, and register that origin's `/auth/callback` with 
 Any `SSO_REDIRECT_URI` override must point to that same hosted callback. Tests use a
 synthetic authorization service. An alternate backend can be selected with
 `--dart-define=HARNESS_API_URL=https://your-backend.example` on run/build.
-Use `--dart-define=HARNESS_ANALYTICS_DISABLED=true` for isolated previews.
 
 ### Production release
 
@@ -80,9 +88,9 @@ For a local production build, run `bash scripts/build-web-release.sh X.Y.Z`.
 
 - Authenticated access to existing machines uses the shared viewer services and
   encrypted relay. Link a machine from the browser before controlling it.
-- **Share** on an agent creates one browser link. Private links require sign-in
+- **Share** on a harness creates one browser link. Private links require sign-in
   with an invited email; public links open without an account. Viewers receive
-  only that agent's read-only output through the encrypted observer relay, with
+  only that harness's read-only output through the encrypted observer relay, with
   the owner's identity pinned in the link. Sign-in returns to the same link.
   Comments travel through that channel and persist on the owner's machine;
   posting requires sign-in. Authors can remove their comments and owners can
@@ -99,8 +107,8 @@ For a local production build, run `bash scripts/build-web-release.sh X.Y.Z`.
   the existing macOS/Linux download page in a separate tab. Browser sign-in uses
   a full-page fleet diagram and prominent CTA, sharing the native login actions
   and their waiting, cancellation, and recovery states.
-- Workspace shortcuts use **Option/Alt** in the browser: Alt-P finds agents,
-  Alt-N starts an agent, Alt-M opens machines, and Alt-T opens a Harness tab.
+- Workspace shortcuts use **Option/Alt** in the browser: Alt-P finds harnesses,
+  Alt-N starts a harness, Alt-M opens machines, and Alt-T opens a swarm.
   Machine connection commands and link requests use that same `@` picker,
   with connection and setup forms inside its preview pane.
   Text editing and terminal
@@ -255,7 +263,7 @@ Embedded viewers remain macOS-only. See the
 
 ## Local Codex profiles
 
-New Agent → Codex discovers local profiles when the Harness CLI advertises
+New Harness → Codex discovers local profiles when the Harness CLI advertises
 `supportsCodexHome`. The picker appears only when there are at least two distinct
 profile folders; **Default** does not count as another profile. A single profile
 is selected automatically, while no profiles keeps the normal launch. Linking

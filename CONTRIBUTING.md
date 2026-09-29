@@ -28,7 +28,9 @@ cd ../my-first-harness
 The first command links the shared viewer from this checkout. Store installations normally install
 that dependency automatically; this also lets you try a new viewer before it is published.
 
-**Agent + viewer = harness.** This example has three working files:
+**A harness packages an agent’s instructions, tools, and optional viewer.** Install it,
+start it in your workspace, and group it with other harnesses in a swarm; see the
+[terminology guide](docs/terminology.md). This example has three working files:
 
 - [`harness.json`](store/examples/hello-world/harness.json) declares the agent and its viewer.
 - [`AGENTS.md`](store/examples/hello-world/AGENTS.md) teaches the agent to change the greeting.
@@ -80,7 +82,7 @@ The agent should change `index.html` to say `Hello, Ada!`. Watch it update in th
 the terminal. You have now run an agent and a viewer together as your own harness.
 
 `--link` keeps the installed package connected to your checkout. Edit the instructions and start
-a fresh session in a new project to try them; instructions already copied into an existing
+a fresh harness in a new project to try them; instructions already copied into an existing
 project are preserved. You can remove this example with `harness dsh remove examples/hello-world`;
 your source folder and projects remain.
 
@@ -143,7 +145,7 @@ read what you submit and run the example yourself.
 | You want to… | Start here |
 |---|---|
 | Improve an existing harness | Its folder in [store/agents](store/agents/) and its own README |
-| Share a viewer other harnesses can reuse | [Store guide](store/README.md), [viewer packages](store/viewers/) |
+| Share a viewer harnesses can reuse | [Store guide](store/README.md), [viewer packages](store/viewers/) |
 | Add a coding engine | [Engine integration guide](cli/src/engines/README.md) |
 | Add an API provider | [Provider guide](provider/README.md) |
 | Improve terminal behavior, shortcuts, or accessibility | [Development guide](docs/development.md), [keyboard guide](docs/keyboard.md) |

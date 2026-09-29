@@ -265,7 +265,7 @@ void main() {
       await tester.enterText(search, 'clone');
       await tester.pump();
       expect(find.text('Clone Harness'), findsOneWidget);
-      expect(find.text('New Tab'), findsNothing);
+      expect(find.text('New Swarm'), findsNothing);
       await tester.enterText(search, 'unknown shortcut');
       await tester.pump();
       expect(find.textContaining('No shortcuts found'), findsOneWidget);
@@ -274,7 +274,7 @@ void main() {
       );
       await tester.enterText(search, 'cmd+y');
       await tester.pump();
-      expect(find.text('New Tab'), findsOneWidget);
+      expect(find.text('New Swarm'), findsOneWidget);
       expect(find.text('Y'), findsOneWidget);
       await key(tester, LogicalKeyboardKey.arrowDown);
       await key(tester, LogicalKeyboardKey.enter);
@@ -282,7 +282,7 @@ void main() {
       expect(find.byType(KeyboardPractice), findsOneWidget);
       await key(tester, LogicalKeyboardKey.keyY, cmd: true);
       await tester.pumpAndSettle();
-      expect(find.text('[x] New Tab'), findsOneWidget);
+      expect(find.text('[x] New Swarm'), findsOneWidget);
       await key(tester, LogicalKeyboardKey.escape);
       await key(tester, LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();

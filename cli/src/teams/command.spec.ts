@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseTeamArgs, waitForTeamAnswer } from './command.js'
 
 describe('team agent command interface', () => {
+  it('resolves current task context on the session’s machine without selecting a swarm', () => {
+    expect(parseTeamArgs(['context', '--agent', 'session-a', '--machine', 'remote'], { port: 18473, machineId: 'host' }))
+      .toMatchObject({ machineId: 'remote', payload: { action: 'context', agentId: 'session-a' } })
+  })
   it('keeps quoted questions and retry identities without shell interpretation', () => {
     const parsed = parseTeamArgs(['--team', 'a'.repeat(32), '--member-key', 'b'.repeat(64), 'ask', 'daemons', 'Explain `$(not-a-command)`', '--id', 'c'.repeat(32), '--json'], { port: 18473, machineId: 'host' })
     expect(parsed).toMatchObject({ json: true, payload: { action: 'ask', text: 'Explain `$(not-a-command)`', to: 'daemons', id: 'c'.repeat(32) } })

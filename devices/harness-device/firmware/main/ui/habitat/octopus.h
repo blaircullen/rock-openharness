@@ -6,9 +6,24 @@ enum { HT_OCTOPUS_FRAMES = 63, HT_OCTOPUS_COLS = 54, HT_OCTOPUS_ROWS = 27,
        HT_OCTOPUS_DURATION = 5210 };
 // Shared by the reading compositor and its touch regions. The text ends above
 // the bottom arc; moving it must never make its target cover the portrait.
+#if HT_FACE_PX >= 720
+// The Pro, 720 square. Derived in devices/harness-pro/mockup/ui-octopus.html and measured here:
+//   reading  a font_8 portrait is 27*8 = 216 tall, so 126 -> 342, and the recap starts at 366.
+//            Six rows of mono_28 is 228 px, ending at 594 — just clear of the status band at 600.
+//   brief    a font_10 portrait is 270 tall, 126 -> 396, and three rows from 420 end at 534.
+// Nothing tapers: there is no chord to taper to, which is most of what the square buys the recap.
+enum { HT_OCTOPUS_BRIEF_Y = 126, HT_OCTOPUS_READING_Y = 126,
+       HT_OCTOPUS_BRIEF_TEXT_Y = 420, HT_OCTOPUS_READING_TEXT_Y = 366 };
+#else
 enum { HT_OCTOPUS_BRIEF_Y = 96, HT_OCTOPUS_READING_Y = 92,
        HT_OCTOPUS_BRIEF_TEXT_Y = 284, HT_OCTOPUS_READING_TEXT_Y = 224 };
+#endif
 extern const ht_font_t ht_octopus_font_2, ht_octopus_font_4, ht_octopus_font_6, ht_octopus_font_8, ht_octopus_font_10;
+#if HT_FACE_PX >= 720
+// The Pro's two rungs. 27*16 = 432 px of companion on a 720 face, and 27*14 = 378 for the state that
+// has to share the page with a detail line. See the ladder note in scripts/gen_octopus.py.
+extern const ht_font_t ht_octopus_font_14, ht_octopus_font_16;
+#endif
 #ifdef DEVICE_LAYOUT_BENCH
 void ht_octopus_fast_scene(bool enabled);
 #endif
@@ -23,7 +38,12 @@ bool ht_octopus_motion_tick(ht_octopus_motion_t *m, uint32_t now, ht_tim_mood_t 
 static inline int ht_octopus_title_y(bool result, bool compact)
 {
     (void)result; (void)compact;
+#if HT_FACE_PX >= 720
+    // Under the tab row at y=40, which is chrome about which book you are in; the name is the content.
+    return 80;
+#else
     return 41;
+#endif
 }
 // A completed result gets tapered rows and a 108 px portrait (162 px for brief
 // results). Roomy reading uses six rows; the default preserves benchmark geometry. NULL keeps

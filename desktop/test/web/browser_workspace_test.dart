@@ -278,7 +278,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const ValueKey('swarm-search-input')), findsOneWidget);
     expect(find.textContaining('No harnesses yet.'), findsOneWidget);
-    expect(find.textContaining('This tab is full'), findsNothing);
+    expect(find.textContaining('This swarm is full'), findsNothing);
     expect(tester.takeException(), isNull);
     tester.view.physicalSize = const Size(390, 844);
     await tester.pump(const Duration(milliseconds: 100));

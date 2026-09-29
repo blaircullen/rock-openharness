@@ -1,6 +1,6 @@
 # hn — tmux improved
 
-All of Harness in a terminal — every harness on every machine, in tabs and panes, from any
+All of Harness in a terminal — every harness on every machine, in swarms and panes, from any
 terminal you can type into: a laptop, a server over SSH, a tablet's SSH app.
 
 ```bash
@@ -20,14 +20,14 @@ about it: [docs/tmux-improved.md](docs/tmux-improved.md).
 with animations off and a demo hostname.</sub>
 
 It connects to the **same daemon the desktop app uses**: agents run on their own machines,
-and each agent pane streams its terminal. Daemon-backed tabs share the account's **desk**
+and each agent pane streams its terminal. Swarms connected to a daemon share the account's **desk**
 with the desktop and phone. With no daemon available, hn opens local shells instead; a private
 PTY supervisor keeps them running through detach, reconnect and a client crash. These local
 sessions stay on this computer and remain intact when Harness reconnects.
 
 On a fresh server `hn` signs in (over SSH the login prints a URL and takes the pasted
 callback), starts the daemon, then opens. If sign-in or daemon startup fails, it still opens
-a local shell. Like `tmux new -A`, it restores your tabs if the desk has any,
+a local shell. Like `tmux new -A`, it restores your swarms if the desk has any,
 else window 0 is a shell on this computer, in the folder you ran `hn` in. `C-b s` finds every
 harness. Closing the last window ends `hn` (`[exited]`, as tmux says it); `C-b d` detaches.
 
@@ -58,7 +58,7 @@ flags are accepted (hn already works that way) and `-c` runs a command in your s
 ## Keys
 
 tmux's. The prefix is `C-b`; `C-b s` then Enter goes to any harness (its window, or a window of its own), `C-v` or `C-x` puts it beside or below; every default tmux binding does what it does in tmux, with a window
-being a tab and a pane being a harness. If you have a `~/.tmux.conf`, it is read: your prefix and
+being a swarm and a pane showing a harness. If you have a `~/.tmux.conf`, it is read: your prefix and
 binds (copy-mode-vi's and vim-tmux-navigator's too), `source-file`, `if-shell`, `base-index`,
 `renumber-windows`, `mouse`, `mode-keys`, `status-left`/`status-right` and the window formats
 (`#[…]` styles, `#{?…}`, `%H:%M`), `pane-border-format`, `synchronize-panes` and your colours come
@@ -198,6 +198,34 @@ it reversed, so you know before you start more agents),
 `#{pane_machine}`, `#{pane_far}` (another machine's), `#{pane_watched}` and `#{pane_watcher}`
 (another window has the pane to type in, and who), and `#{waiting}` (the harnesses waiting on
 you).
+
+## Graphical viewers
+
+For a Blender, CAD, video or other domain harness, run `view` from `C-b :` or choose
+`open-viewer` in the command list. The harness preview shows when its viewer is ready.
+
+```sh
+hn view                          # current hn pane
+hn view -t 'My Blender scene'     # by harness name or id, without opening a terminal pane
+hn view -p -t 'My Blender scene'  # print its URL, without launching a browser
+hn view -c                       # copy its browser-app link through the terminal clipboard
+hn view -w                       # open in the authenticated browser app even on this machine
+```
+
+On a local desktop, the current machine's viewer opens directly in your default browser.
+Over SSH, `hn` prints a link you open on your own computer; it never launches a browser on the
+SSH host. A harness on another linked machine uses the same browser-app link. Sign in as its
+owner and link the machine if this browser has not done so before. The URL contains machine
+and harness identifiers, not credentials, and does not grant access or create a public share.
+
+The browser companion opens only that viewer. It does not restore your desk, attach a terminal,
+or take the keyboard from `hn`. Closing either view leaves the harness running. Browser-based
+remote viewers use Harness's existing encrypted interactive-viewer transport, which requires
+Chrome or Chromium on the harness machine for rendering. Local direct viewers do not need that
+renderer. A missing renderer is reported in the viewer with a retry action.
+
+`-p` also works for scripts and terminals without clipboard support. Browser launch failure
+prints the link instead. No tmux key bindings are changed.
 
 ## From a shell
 

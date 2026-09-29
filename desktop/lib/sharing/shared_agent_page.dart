@@ -199,8 +199,8 @@ class _SharedAgentPageState extends State<SharedAgentPage> {
                           children: [
                             Text(
                               _loading
-                                  ? 'Opening shared agent…'
-                                  : _error ?? 'Shared agent',
+                                  ? 'Opening shared harness…'
+                                  : _error ?? 'Shared harness',
                               style: terminalContentStyle(),
                               textAlign: TextAlign.center,
                             ),

@@ -18,8 +18,10 @@
 
 /** A live dialog's footer, the shared reader's anchor (`parseQuestionPane`). Each CLI words its own, and
  *  OpenCode rewords it per screen (`enter submit`, `enter toggle`, `enter confirm`); Codex's
- *  request_user_input says `enter to submit answer`. */
-export const QUESTION_FOOTER_RE = /enter to (select|confirm|submit)|enter\s+(submit|confirm|toggle)/i
+ *  request_user_input says `enter to submit answer`. Hermes' batch panel says `Enter to lock, Tab next
+ *  question…` — one question alone still gets that panel, and its footer was read as "no dialog" until
+ *  `lock` was accepted here. */
+export const QUESTION_FOOTER_RE = /enter to (select|confirm|submit|lock)|enter\s+(submit|confirm|toggle)/i
 
 /** The key hints a permission dialog prints under its rows: claude `Esc to cancel · Tab to amend`,
  *  Command Code `↑/↓ navigate · enter select · ctrl+e explain`. Proximity to the rows is what makes this

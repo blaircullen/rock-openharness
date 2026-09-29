@@ -8,6 +8,7 @@ import { Team, type Actor, type Address, type Receipt } from './model.js'
 import { TeamMailbox } from './mailbox.js'
 import { teamDeliveryRequest, teamRequest } from './wire.js'
 import { parseChannelArgs } from './channelCommand.js'
+import { SwarmPromptScopes } from './promptScope.js'
 
 const owner: Actor = { kind: 'owner' }
 const mobile = { machineId: 'host', agentId: 'mobile' }
@@ -17,7 +18,7 @@ const questionId = 'a'.repeat(32), consultationId = 'b'.repeat(32)
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
 
-function fixture(initiallyEnabled = true) {
+function fixture(initiallyEnabled = true, taskScope?: (address: Address) => Promise<string | null>) {
   const root = mkdtempSync(join(tmpdir(), 'harness-channels-'))
   const sent: { agentId: string; id: string; text: string }[] = []
   let desk = { revision: 1, tabs: [
@@ -29,6 +30,7 @@ function fixture(initiallyEnabled = true) {
   const runtime = (a: Address) => ({ name: a.agentId, engine: a.agentId === 'shell' ? 'terminal' : 'codex', available: true, cwd: `/work/${a.agentId}` })
   const service = new TeamService({
     stateDir: join(root, 'ledgers'), machineId: 'host', command: () => 'harness team',
+    taskScope,
     runtime: async a => runtime(a),
     delivery: async (a, action, delivery) => {
       let box = boxes.get(a.machineId)
@@ -59,6 +61,41 @@ function fixture(initiallyEnabled = true) {
 }
 
 describe('tab channels', () => {
+  it('isolates accepted prompts in two swarms containing the exact same session', async () => {
+    const scopes = new SwarmPromptScopes()
+    const f = fixture(true, async address => scopes.current(address.agentId))
+    f.setDesk({ revision: 2, tabs: [f.desk.tabs[0], { ...f.desk.tabs[1], panes: [mobile, backend] }] })
+    await f.directory.refresh()
+    const request = (tabId: string, action: string, extra = {}) => teamRequest(f.service, {
+      action, teamId: channelTeamId(tabId), memberKey: f.member('mobile', tabId).key, ...extra,
+    })
+    scopes.raw('mobile', Buffer.from('frontend task\r'), 'devices')
+    scopes.started('mobile', 'frontend task', 'hook')
+    expect(await request('devices', 'members')).toHaveProperty('members')
+    expect(await request('api', 'members')).toMatchObject({ error: 'CHANNEL_SCOPE' })
+    expect(await request('api', 'ask', { id: questionId, to: f.member('backend', 'api').name, text: 'wrong scope' }))
+      .toMatchObject({ error: 'CHANNEL_SCOPE' })
+    expect(f.read('api').exchanges).toHaveLength(0)
+    expect(await f.directory.taskContext('mobile', scopes.current('mobile')))
+      .toMatchObject({ tabId: 'devices', command: expect.stringContaining(`--team ${channelTeamId('devices')}`) })
+
+    // Merely queuing another task from B leaves A's consultation scope intact.
+    scopes.prepare('mobile', 'backend task', 'api')
+    expect(await request('devices', 'ask', { id: questionId, to: f.member('firmware').name, text: 'right scope' }))
+      .toHaveProperty('exchange')
+    scopes.started('mobile', 'backend task', 'hook')
+    expect(await request('devices', 'members')).toMatchObject({ error: 'CHANNEL_SCOPE' })
+    expect(await request('api', 'members')).toHaveProperty('members')
+    scopes.started('mobile', 'frontend task')
+    expect(await request('devices', 'members')).toMatchObject({ error: 'CHANNEL_SCOPE' })
+
+    scopes.started('mobile', 'unattributed external prompt', 'hook')
+    expect(await request('api', 'ask', { id: questionId, to: f.member('backend', 'api').name, text: 'unknown scope' }))
+      .toMatchObject({ error: 'CHANNEL_SCOPE' })
+    await expect(f.directory.taskContext('mobile', scopes.current('mobile'))).rejects.toThrow('no verified swarm origin')
+    // Inspecting the owner's log is still read-only and independent of an agent task.
+    expect(await teamRequest(f.service, { action: 'get', teamId: channelTeamId('api') })).toHaveProperty('team')
+  })
   it('missing opt-in metadata and a failed directory read keep automated input off', async () => {
     const f = fixture()
     f.readDesk.mockResolvedValueOnce({ ...f.desk } as Awaited<ReturnType<typeof f.readDesk>>)
@@ -142,7 +179,8 @@ describe('tab channels', () => {
     await f.directory.refresh()
     await f.tick()
     expect(f.sent.map(s => s.agentId).sort()).toEqual(['firmware', 'mobile'])
-    expect(f.sent[0].text).toContain('collaboration channel')
+    expect(f.sent[0].text).toContain('membership notice')
+    expect(f.sent[0].text).toContain('context --agent')
     expect(f.sent[0].text).toContain('history')
     const teamId = channelTeamId('devices')
     const discovery = await teamRequest(f.service, { action: 'members', teamId, memberKey: f.member('mobile').key })
@@ -172,8 +210,8 @@ describe('tab channels', () => {
     expect(instructions[0].text).toContain('Explicit instruction from the user')
     expect(f.sent.filter(s => s.agentId === 'mobile' && s.id.endsWith(':intro'))).toHaveLength(0)
     expect(f.read().exchanges).toHaveLength(0)
-    await expect(f.directory.request({ ...payload, tabId: 'api' })).rejects.toThrow('no longer in this tab')
-    await expect(f.directory.request({ ...payload, tabId: 'api', from: backend })).rejects.toThrow('Add another agent')
+    await expect(f.directory.request({ ...payload, tabId: 'api' })).rejects.toThrow('no longer in this swarm')
+    await expect(f.directory.request({ ...payload, tabId: 'api', from: backend })).rejects.toThrow('Add another harness')
     await expect(f.directory.request({ ...payload, id: 'c'.repeat(32), memberKey: f.member('mobile').key })).rejects.toThrow('own channel')
   })
 
@@ -208,7 +246,7 @@ describe('tab channels', () => {
     await f.directory.refresh(true)
     expect(f.member('mobile').key).not.toBe(oldKey)
     expect(f.read().members).toHaveLength(4)
-    expect(() => f.service.updateMember(channelTeamId('devices'), { id: f.member('mobile').id, name: 'mobile', enabled: true }, owner)).toThrow('tab')
+    expect(() => f.service.updateMember(channelTeamId('devices'), { id: f.member('mobile').id, name: 'mobile', enabled: true }, owner)).toThrow('swarm')
   })
 
   it('routes to the sticky host, preserves state on desk failure, and fails honestly on older backends', async () => {

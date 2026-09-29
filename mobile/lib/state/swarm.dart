@@ -5,26 +5,30 @@ import 'terminal_pane.dart';
 /// exactly one controller and switching tabs cannot take over our own stream.
 class Swarm {
   Swarm({required this.id, String name = defaultName})
-    : name = const {
-            'New swarm',
-            'New tab',
-            'New Tab',
-            'New Harness',
-            'New Agent',
-          }.contains(name)
-          ? defaultName
-          : name;
+    : name = normalizeName(name);
 
-  /// What an untouched tab is called, and the desktop's own word for it
+  static String normalizeName(String name) =>
+      const {
+        'New swarm',
+        'New tab',
+        'New Tab',
+        'New Harness',
+        'New Agent',
+        'Untitled Tab',
+      }.contains(name)
+      ? defaultName
+      : name;
+
+  /// What an untouched swarm is called, matching the desktop
   /// (`desktop/lib/state/swarm.dart`).
   ///
   /// ⚠️ **"New Harness" is in the legacy set above, not here, and the two are
-  /// not the same thing.** A *harness* is one agent — what the desktop's menus
-  /// stop, fork and rename. A *tab* is the box several of them sit in. The
+  /// not the same thing.** A *harness* is one running agent session — what the
+  /// desktop's menus stop, fork and rename. A *swarm* groups harnesses. The
   /// default was 'New Harness' until 2026-09-15, which read as though opening a
   /// tab opened an agent; a layout saved then still carries the name, and it
   /// has to come back as the same fresh tab.
-  static const defaultName = 'Untitled Tab';
+  static const defaultName = 'New Swarm';
 
   final String id;
   String name;

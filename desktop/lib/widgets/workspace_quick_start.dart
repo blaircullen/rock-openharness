@@ -22,8 +22,11 @@ class WorkspaceQuickStart extends StatelessWidget {
     TerminalFontScope.watch(context);
     final next = learning.next;
     final (command, label) = switch (next) {
-      WorkspaceLesson.agent => ('swarm.new', 'Open your first agent'),
-      WorkspaceLesson.pane => ('agent.open', 'Add a second agent to this tab'),
+      WorkspaceLesson.agent => ('swarm.new', 'Open your first harness'),
+      WorkspaceLesson.pane => (
+        'agent.open',
+        'Add a second harness to this swarm',
+      ),
       WorkspaceLesson.zoom => ('pane.zoom', 'Zoom the focused pane'),
       WorkspaceLesson.commands => (
         'navigation.commands',

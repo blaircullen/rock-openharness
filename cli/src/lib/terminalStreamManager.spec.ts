@@ -31,11 +31,13 @@ class FakeStream implements TerminalStreamHandle {
   resumes = 0
   snapshotBegins = 0
   snapshotEnds = 0
+  snapshotOptions: Array<{ tuiOwnsScrollback?: boolean } | undefined> = []
   onEndSnapshot: (() => void) | null = null
 
   beginSnapshot() { this.snapshotBegins++ }
-  async snapshot(): Promise<{ state: 'succeeded'; value: { bytes: Uint8Array; cols: number; rows: number } }> {
+  async snapshot(options?: { tuiOwnsScrollback?: boolean }): Promise<{ state: 'succeeded'; value: { bytes: Uint8Array; cols: number; rows: number } }> {
     this.snapshots++
+    this.snapshotOptions.push(options)
     this.onSnapshot?.(this.snapshots)
     return { state: 'succeeded', value: { bytes: this.snapshotBytes, cols: 120, rows: 40 } }
   }
@@ -118,6 +120,28 @@ describe('TerminalStreamManager', () => {
     expect((result.payload.engines as Array<{ id: string }>).map((row) => row.id)).toEqual([...ENGINES])
   })
 
+  it('records the origin only for accepted input from the owning stream, before writing bytes', async () => {
+    const onScopedInput = vi.fn(() => expect(stream.writes).toHaveLength(0))
+    await manager.stop()
+    manager = newManager({ onScopedInput })
+    await manager.handleFrame('web-1', 'terminal_open', {
+      requestId: 'scoped', protocolVersion: 3, agentId: 'agent-1', cols: 100, rows: 30,
+    })
+    const ready = sent.findLast(f => f.type === 'terminal_ready')!.payload
+    expect(ready.swarmInput).toBe(true)
+    const frame = { kind: TerminalBinaryKind.input, streamId: String(ready.streamId), seq: 0,
+      bytes: Buffer.from('hello\r'), compressed: false, tabId: 'swarm-a' }
+    await manager.handleBinary('wrong-owner', frame)
+    expect(onScopedInput).not.toHaveBeenCalled()
+    await manager.handleBinary('web-1', { ...frame, seq: 2 })
+    expect(onScopedInput).not.toHaveBeenCalled()
+    await manager.handleBinary('web-1', frame)
+    expect(onScopedInput).toHaveBeenCalledWith('agent-1', frame.bytes, 'swarm-a', false)
+    expect(stream.writes).toEqual([frame.bytes])
+    await manager.handleBinary('web-1', frame)
+    expect(onScopedInput).toHaveBeenCalledOnce()
+  })
+
   it('uses the same generic path for every current engine', async () => {
     for (const [index, engine] of ENGINES.entries()) {
       const agentId = `agent-generic-${index}`
@@ -151,6 +175,19 @@ describe('TerminalStreamManager', () => {
       requestId: 'missing', protocolVersion: 3, agentId: 'does-not-exist', cols: 100, rows: 30,
     })
     expect(sent.at(-1)?.payload.code).toBe('TERMINAL_AGENT_NOT_FOUND')
+  })
+
+  it('tells a Grok snapshot not to seed tmux history, and leaves other engines alone', async () => {
+    await manager.handleFrame('web-1', 'terminal_open', {
+      requestId: 'open-codex', protocolVersion: 3, agentId: 'agent-1', cols: 120, rows: 40,
+    })
+    expect(stream.snapshotOptions.at(-1)).toBeUndefined()
+
+    agents.set('grok-1', session('grok', 'grok-1'))
+    await manager.handleFrame('web-1', 'terminal_open', {
+      requestId: 'open-grok', protocolVersion: 3, agentId: 'grok-1', cols: 120, rows: 40,
+    })
+    expect(stream.snapshotOptions.at(-1)).toEqual({ tuiOwnsScrollback: true })
   })
 
   it('tells the daemon an agent took input from its controller — never from a watcher, never for input it refused', async () => {
@@ -616,6 +653,29 @@ describe('TerminalStreamManager', () => {
     expect(stream.closed).toBe(true)
     expect(sent.some((frame) => frame.connId === 'web-2'
       && frame.type === 'terminal_closed'
+      && frame.payload.reason === 'heartbeat timeout')).toBe(true)
+  })
+
+  // Node's clock keeps running while a Mac sleeps, so a lid closed for forty minutes reached the next
+  // sweep as forty minutes without `terminal_alive` and closed every stream at the wake — measured
+  // 2026-09-28 as `[terminal-stream] closed` on every local terminal the moment the lid opened.
+  it('carries a lease over the time the computer slept, and still expires it on awake silence', async () => {
+    let asleepMs = 0
+    await manager.stop()
+    manager = newManager({ now: () => Date.now() + asleepMs })
+    await manager.handleFrame('web-1', 'terminal_open', {
+      requestId: 'open-1', protocolVersion: 3, agentId: 'agent-1', cols: 100, rows: 30,
+    })
+    await vi.advanceTimersByTimeAsync(20_000)
+    asleepMs += 2_280_000 // the lid closes; no timer runs until it opens again
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(stream.closed).toBe(false)
+    expect(sent.some((frame) => frame.type === 'terminal_closed')).toBe(false)
+
+    // Awake and still silent: the lease runs out on awake time, as before.
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(stream.closed).toBe(true)
+    expect(sent.some((frame) => frame.type === 'terminal_closed'
       && frame.payload.reason === 'heartbeat timeout')).toBe(true)
   })
 

@@ -159,10 +159,10 @@ class AgentGitContext {
   String get explanation => recentWork != null
       ? 'Branch in the most recent confirmed work location${recentWorkAt == null ? '.' : ' · ${localWorkTime(recentWorkAt!)}'}'
       : switch (state) {
-          'multiple' => 'Branches checked out for this session.',
+          'multiple' => 'Branches checked out for this harness.',
           'uncertain' || 'unavailable' =>
             'Git is unavailable. Showing saved branches and pull requests.',
-          _ => 'Branch checked out for this session.',
+          _ => 'Branch checked out for this harness.',
         };
 
   AgentProject? displayProject(AgentProject? launch) {

@@ -89,7 +89,7 @@ class HarnessCustomizePane extends StatelessWidget {
                     ),
                     Tab(
                       key: ValueKey('customize-wallpaper'),
-                      text: 'Wallpaper',
+                      text: 'Background',
                     ),
                     Tab(key: ValueKey('customize-terminal'), text: 'Terminal'),
                   ],

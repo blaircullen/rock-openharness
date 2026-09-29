@@ -373,7 +373,7 @@ void main() {
         'resumeMode': 'nonsense',
       });
 
-      expect(agent.name, 'agent');
+      expect(agent.name, 'harness');
       expect(agent.codexHome, isNull);
       expect(agent.launchDetail, 'bad thing');
       expect(agent.terminalAvailable, isTrue, reason: 'a tmux runtime');

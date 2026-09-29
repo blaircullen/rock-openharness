@@ -396,9 +396,15 @@ class _RenameAgentDialogState extends State<_RenameAgentDialog> {
               disabledBackground: _busy
                   ? accent
                   : accent.withValues(alpha: 0.22),
+              // Disabled, white at 40% vanishes into the pale wash a light card
+              // makes of the accent (1.1:1); there the label takes the accent
+              // itself — 4.0:1, the wash alone saying it is off. Dark: 3.5:1.
               disabledForeground: _busy
                   ? Colors.white
-                  : Colors.white.withValues(alpha: 0.4),
+                  : grid.AppTheme.pick(
+                      accent,
+                      Colors.white.withValues(alpha: 0.4),
+                    ),
             ),
             onPressed: _canSave ? () => unawaited(_submit()) : null,
             child: _busy

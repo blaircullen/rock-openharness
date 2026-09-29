@@ -54,7 +54,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('Device'), findsOneWidget);
-        expect(find.textContaining('This tab only'), findsOneWidget);
+        expect(find.textContaining('This swarm only'), findsOneWidget);
         expect(find.byKey(const Key('team-question')), findsNothing);
         expect(find.byKey(const Key('team-new')), findsNothing);
         expect(find.text('New question'), findsNothing);

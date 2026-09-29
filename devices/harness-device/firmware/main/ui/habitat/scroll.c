@@ -1,4 +1,5 @@
 #include "scroll.h"
+#include "terminal.h"   // HT_WIDTH / HT_FACE_PX: a rim is a property of the face
 #include <stdlib.h>
 
 #define CLAIM_PX 12
@@ -8,9 +9,26 @@
 
 bool ht_scroll_on_rim(int x, int y)
 {
+#if HT_FACE_PX >= 720
+    /*
+     * A SQUARE HAS NO RIM, so nothing is ever on it.
+     *
+     * The annulus below is a 466 circle's: centred on (233,233) with radii 178..233. Left alone on a
+     * 720 face it keeps that centre, so the band lands in the top-left quadrant and sweeps straight
+     * across the companion — and ui_habitat.c cancels any press that starts on the rim
+     * (pressed_action.kind = A_NONE). The symptom is not a wrong scroll. It is taps over a third of
+     * the screen doing nothing at all, which is precisely what the first Pro build did.
+     *
+     * Returning false here also makes bearing() and the rim_radius bookkeeping dead on this board:
+     * they are only ever reached through a rim candidate.
+     */
+    (void)x; (void)y;
+    return false;
+#else
     x -= 233; y -= 233;
     int r = x * x + y * y;
     return r >= 178 * 178 && r <= 233 * 233;
+#endif
 }
 // Monotonic octant approximation: 1024 units per turn, clockwise. No trig/FPU in touch.
 static int bearing(int x, int y)

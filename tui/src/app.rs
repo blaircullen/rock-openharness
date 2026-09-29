@@ -403,6 +403,7 @@ struct LinkState {
 
 pub struct App {
     pub port: u16,
+    pub viewer_web_url: String,
     pub sink: UnboundedSender<Event>,
     pub fleet: Fleet,
     links: HashMap<String, LinkState>,
@@ -778,6 +779,7 @@ impl App {
         };
         App {
             port,
+            viewer_web_url: String::new(),
             sink,
             fleet: Fleet::default(),
             links: HashMap::new(),
@@ -1087,6 +1089,7 @@ impl App {
         self.spawn(async move { http_json(port, "GET", "/api/status", None).await }, |app, status| match status {
             Ok(status) => {
                 app.daemon_down = false;
+                app.viewer_web_url = status.get("webUrl").and_then(Value::as_str).unwrap_or("").to_string();
                 let id = status.get("machineId").and_then(Value::as_str).unwrap_or("").to_string();
                 if status.get("signedIn").and_then(Value::as_bool) == Some(false) {
                     app.say("This computer is not signed in — run `harness login`", theme::DANGER);
@@ -1297,8 +1300,13 @@ impl App {
                 if ty == "agent_renamed" && row.get("engine").is_none() {
                     if let (Some(agent), Some(name)) = (self.fleet.agents.get_mut(&key), row.get("name").and_then(Value::as_str)) { agent.name = name.to_string() }
                 } else {
-                    let agent = fleet::agent_from(machine_id, &row, self.fleet.agents.get(&key));
+                    let previous = self.fleet.agents.get(&key);
+                    let agent = fleet::agent_from(machine_id, &row, previous);
+                    let viewer_ready = !agent.viewer_url.is_empty() && previous.is_none_or(|a| a.viewer_url.is_empty())
+                        && crate::input::focused_key(self).as_ref() == Some(&key);
+                    let viewer_name = if agent.viewer_name.is_empty() { "Viewer".to_string() } else { agent.viewer_name.clone() };
                     self.fleet.agents.insert(key, agent);
+                    if viewer_ready { self.say(format!("{viewer_name} ready — C-b : view opens it"), theme::ONLINE) }
                 }
                 self.sync_titles();
             }
@@ -1984,7 +1992,7 @@ impl App {
         let opens_shell = words.iter().any(|w| matches!(crate::cmd::find(w).map(|e| e.name), Ok("new-session" | "new-window" | "split-window" | "respawn-pane" | "respawn-window" | "display-popup")));
         // list-harnesses from a client just started (hn with no terminal, for a script): once
         // every machine's harnesses are known, so it says what each one is doing.
-        let asks_fleet = matches!(words.first().map(String::as_str), Some("list-harnesses" | "lsh" | "answer-harness" | "answer" | "open-harness" | "openh" | "send-message" | "restart-harness" | "restarth" | "pause-harness" | "resume-harness" | "clone-harness" | "rename-harness"));
+        let asks_fleet = matches!(words.first().map(String::as_str), Some("open-viewer" | "view" | "list-harnesses" | "lsh" | "answer-harness" | "answer" | "open-harness" | "openh" | "send-message" | "restart-harness" | "restarth" | "pause-harness" | "resume-harness" | "clone-harness" | "rename-harness"));
         self.last_cli = Instant::now();
         if !self.cli_held.is_empty() || (opens_shell && !self.cli_ready()) || (asks_fleet && !self.fleet_ready()) { self.cli_held.push_back(job); return }
         job(self)

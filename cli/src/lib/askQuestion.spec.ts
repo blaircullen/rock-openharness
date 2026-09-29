@@ -117,6 +117,17 @@ describe('the Hermes clarify dialog', () => {
   it('is invisible to the unframed parser — which is why the engine branch exists', () => {
     expect(parseQuestionPane(fixture('hermes'))).toBeNull()
   })
+
+  // Real capture from a current Hermes (Sep 2026): clarify now paints its batch panel even for one
+  // question — a `N questions` header, the active question behind `▸`, and a footer reading
+  // "Enter to lock, Tab next question". With the old footer set the device never saw it at all.
+  it('reads the batch panel, whose footer says "Enter to lock"', () => {
+    const view = asQuestion(parseEngineQuestionPane('hermes', fixture('hermes-lock')))
+    expect(view.question).toBe('Quelle couleur préférez-vous ?')
+    expect(view.rows.map((r) => r.number)).toEqual(['1', '2', '3'])
+    expect(view.rows.map((r) => r.label)).not.toContain('Other (type your answer)')
+    expect(view.typeRow?.number).toBe('4')
+  })
 })
 
 describe('the OpenCode question dialog', () => {
@@ -1273,6 +1284,7 @@ describe('every captured dialog keeps its requestId', () => {
     'question-devin.txt': 'q_19a084b7',
     'question-grok.txt': 'q_a5e412d6',
     'question-hermes.txt': 'q_58484dc6',
+    'question-hermes-lock.txt': 'q_d72d9997',
     'question-kilo.txt': 'q_0f7b7b0e',
     'question-multi.txt': 'q_6b6969c5',
     'question-muse.txt': 'q_42c9e375',

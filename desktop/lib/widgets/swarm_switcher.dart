@@ -32,6 +32,7 @@ import 'engine_identity.dart';
 import 'swarm_icon.dart';
 import 'swarm_search_preview.dart';
 import 'swarm_resource_preview.dart';
+import 'key_hints.dart';
 
 Future<SwarmSearchSelection?> showSwarmHistory(
   BuildContext context,
@@ -92,10 +93,7 @@ class _SwarmHistoryState extends State<_SwarmHistory> {
                   children: [
                     Text('History', style: grid.AppType.monoLabel()),
                     Spacer(),
-                    Text(
-                      'This session',
-                      style: boxMonoStyle(color: Colors.white54),
-                    ),
+                    Text('This window', style: boxMonoStyle(color: kBoxFaint)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -500,18 +498,32 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
   (Size, double)? _geometry;
   SwarmSearchController get search => widget.search;
 
-  List<({int? index, String? heading})> get _modelRows {
+  /// The model list as drawn: each section's heading, then its rows. [key] is the section's own
+  /// label, which stays put while a heading such as `Get for this Mac · 64 GB` follows its machine.
+  List<({int? index, String? heading, String? key})> get _modelRows {
     if (!search.isModelMode) return const [];
-    final items = <({int? index, String? heading})>[];
+    final items = <({int? index, String? heading, String? key})>[];
     for (final section in ModelSearchSection.values) {
       final indices = [
         for (final (index, row) in search.rows.indexed)
           if (search.modelSection(row) == section) index,
       ];
-      if (indices.isEmpty && search.matchQuery.trim().isNotEmpty) continue;
-      if (items.isNotEmpty) items.add((index: null, heading: null));
-      items.add((index: null, heading: section.label));
-      items.addAll(indices.map((index) => (index: index, heading: null)));
+      // An empty section still says it is there, so there is somewhere to add to — except the
+      // downloads, which a machine with the whole catalog, or none, has nothing under.
+      if (indices.isEmpty &&
+          (search.matchQuery.trim().isNotEmpty ||
+              section == ModelSearchSection.catalog)) {
+        continue;
+      }
+      if (items.isNotEmpty) items.add((index: null, heading: null, key: null));
+      items.add((
+        index: null,
+        heading: search.modelSectionLabel(section),
+        key: section.label,
+      ));
+      items.addAll(
+        indices.map((index) => (index: index, heading: null, key: null)),
+      );
     }
     return items;
   }
@@ -671,11 +683,14 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
     );
     final scale = MediaQuery.textScalerOf(context);
     final cell = widget.bios ? terminalCellSizeOf(context) : Size.zero;
-    final acceptKey = effectiveCommandHint(
-      context,
-      'picker.accept',
-      contextKind: KeymapContext.picker,
-    );
+    final keyHints = KeyHints.visibleOf(context);
+    final acceptKey = keyHints
+        ? effectiveCommandHint(
+            context,
+            'picker.accept',
+            contextKind: KeymapContext.picker,
+          )
+        : null;
     final selected = search.selected;
     final unavailable =
         search.sessionUnavailable(selected) == null &&
@@ -816,7 +831,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                     if (focused) _focusResult(row.id);
                   },
                   selected: highlighted,
-                  selectedColor: Colors.white,
+                  selectedColor: boxText(1),
                   hoverColor: Colors.transparent,
                   // BoxRowHighlight draws the selection, the same
                   // in both modes of the box.
@@ -847,10 +862,10 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                                     row.pickerQuery != null
                                 ? const SizedBox(width: 2)
                                 : row.isCreate
-                                ? const Icon(
+                                ? Icon(
                                     LucideIcons.plus300,
                                     size: 18,
-                                    color: Colors.white70,
+                                    color: boxText(.70),
                                   )
                                 : row.isStore
                                 ? StoreMark(size: 20, enabled: canSubmit)
@@ -862,21 +877,18 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                                     enabled: canSubmit,
                                   )
                                 : row.isProject
-                                ? const Icon(
+                                ? Icon(
                                     LucideIcons.folderOpen,
                                     size: 18,
-                                    color: Colors.white60,
+                                    color: boxText(.60),
                                   )
                                 : row.isMachine
-                                ? const Icon(
+                                ? Icon(
                                     LucideIcons.monitor300,
                                     size: 18,
-                                    color: Colors.white60,
+                                    color: boxText(.60),
                                   )
-                                : const SwarmIcon(
-                                    size: 20,
-                                    color: Colors.white60,
-                                  ),
+                                : SwarmIcon(size: 20, color: boxText(.60)),
                           ],
                         ),
                   title: _SearchRowContent(
@@ -892,7 +904,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                                 key: const ValueKey('swarm-row-action'),
                                 style: boxMonoStyle(color: kBoxFaint),
                               )
-                            : row.shortcut == null
+                            : row.shortcut == null || !keyHints
                             ? null
                             : Text(
                                 row.shortcut!,
@@ -901,7 +913,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                       : alreadyHere && search.placement == null
                       ? Text(
                           'Already added',
-                          style: boxMonoStyle(color: Colors.white54),
+                          style: boxMonoStyle(color: kBoxFaint),
                         )
                       : highlighted
                       ? ConstrainedBox(
@@ -915,7 +927,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                             key: const ValueKey('swarm-row-action'),
                             onPressed: search.canAccept ? _submit : null,
                             style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
+                              foregroundColor: boxText(1),
                             ),
                             child: SwarmSearchActionLabel(
                               search.actionLabel(row),
@@ -927,7 +939,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                       ? null
                       : Text(
                           row.shortcut!,
-                          style: boxMonoStyle(color: Colors.white60),
+                          style: boxMonoStyle(color: boxText(.60)),
                         ),
                   onTap: canSubmit ? () => _submit(row) : null,
                 );
@@ -991,21 +1003,17 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                               : search.adding &&
                                     search.query.isEmpty &&
                                     search.capacity <= 0
-                              ? 'This tab is full (${AppNotifier.maxPanes} panes). Open a new tab to add more.'
+                              ? 'This swarm is full (${AppNotifier.maxPanes} panes). Open a new swarm to add more.'
                               : search.adding && search.query.isEmpty
-                              ? 'No harnesses yet. Start an agent or choose @ machines to connect a machine.'
+                              ? 'No harnesses yet. Start a harness or choose @ machines to connect a machine.'
                               : search.adding
                               ? 'No matching harnesses'
                               : 'No matching results',
                           style: widget.bios
-                              ? terminalContentStyle(
-                                  color: theme.foreground.withValues(
-                                    alpha: .54,
-                                  ),
-                                )
+                              ? terminalContentStyle(color: theme.muted)
                               : grid.AppType.monoLabel(
                                   fontWeight: FontWeight.w400,
-                                  color: Colors.white60,
+                                  color: boxText(.60),
                                 ),
                         ),
                       )
@@ -1058,9 +1066,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                                 return Semantics(
                                   header: true,
                                   child: Padding(
-                                    key: ValueKey(
-                                      'model-section:${item.heading}',
-                                    ),
+                                    key: ValueKey('model-section:${item.key}'),
                                     padding: EdgeInsets.symmetric(
                                       horizontal: widget.bios
                                           ? cell.width * 3
@@ -1071,11 +1077,10 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                                       maxLines: 1,
                                       style: widget.bios
                                           ? terminalContentStyle(
-                                              color: theme.foreground
-                                                  .withValues(alpha: .54),
+                                              color: theme.muted,
                                             )
                                           : grid.AppType.monoLabel(
-                                              color: Colors.white60,
+                                              color: boxText(.60),
                                             ),
                                     ),
                                   ),
@@ -1107,14 +1112,10 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: widget.bios
-                                ? terminalContentStyle(
-                                    color: theme.foreground.withValues(
-                                      alpha: .54,
-                                    ),
-                                  )
+                                ? terminalContentStyle(color: theme.muted)
                                 : grid.AppType.monoLabel(
                                     fontWeight: FontWeight.w400,
-                                    color: Colors.white60,
+                                    color: boxText(.60),
                                   ),
                           ),
                         ),
@@ -1150,7 +1151,7 @@ class _SwarmSearchResultsState extends State<SwarmSearchResults> {
                     VerticalDivider(
                       width: 1,
                       thickness: 1,
-                      color: (widget.bios ? theme.foreground : Colors.white)
+                      color: (widget.bios ? theme.foreground : boxInk(1))
                           .withValues(alpha: .16),
                     )
                   else
@@ -1270,6 +1271,46 @@ class _SearchRowContent extends StatefulWidget {
 }
 
 class _SearchRowContentState extends State<_SearchRowContent> {
+  /// The widest word a model row of yours ends with (`Downloading`): the column is that wide, so
+  /// the size and speed columns ahead of it line up whatever each row says.
+  static const _modelWordColumns = 11;
+
+  /// A model row's last word. It is green only while something is live — running, in use, a
+  /// download under way; an action (Use, Get) is plain; a failure is a warning; a state is muted.
+  /// [row]'s size and speed columns, when a row [width] wide keeps room for the model's name.
+  String? _modelFacts(SwarmDestination row, double width, Size cell) =>
+      width >= cell.width * 58 ? widget.search.modelRowFacts(row) : null;
+
+  Widget _modelRowWord(
+    SwarmDestination row,
+    String status, {
+    required bool aligned,
+    required Color live,
+    required Color foreground,
+    required Color warning,
+    required Color muted,
+    required Size cell,
+  }) {
+    final search = widget.search;
+    final color = search.modelRowLive(row)
+        ? live
+        : search.modelRowFailed(row)
+        ? warning
+        : status == search.modelRowAction(row)
+        ? foreground
+        : muted;
+    final text = Text(
+      status,
+      key: ValueKey('model-row-status:${row.id}'),
+      maxLines: 1,
+      textAlign: TextAlign.right,
+      style: terminalContentStyle(color: color),
+    );
+    return aligned
+        ? SizedBox(width: cell.width * _modelWordColumns, child: text)
+        : text;
+  }
+
   late (String, bool, SessionContentHit?) _query;
 
   /// What this row draws from the search: its words, and what a machine's
@@ -1329,7 +1370,7 @@ class _SearchRowContentState extends State<_SearchRowContent> {
         grid.AppTheme.palette.value,
         terminalThemeStore.value,
       );
-      final muted = theme.foreground.withValues(alpha: .54);
+      final muted = theme.muted;
       final modelAction = row.isModel
           ? widget.search.modelRowAction(row)
           : null;
@@ -1341,11 +1382,11 @@ class _SearchRowContentState extends State<_SearchRowContent> {
         color: row.isNote
             ? muted
             : !widget.enabled ||
-                (row.isModel &&
-                    !widget.search.isModelDownloadsRow(row) &&
-                    !widget.search.canExpandApi(row) &&
-                    !widget.search.canSelectModel(row) &&
-                    !widget.search.canGetModel(row))
+                  (row.isModel &&
+                      !widget.search.isModelDownloadsRow(row) &&
+                      !widget.search.canExpandApi(row) &&
+                      !widget.search.canSelectModel(row) &&
+                      !widget.search.canGetModel(row))
             ? theme.foreground.withValues(alpha: .28)
             : row.isCreate || widget.search.isModelDownloadsRow(row)
             ? theme.cursor
@@ -1440,21 +1481,41 @@ class _SearchRowContentState extends State<_SearchRowContent> {
                         maxLines: 1,
                         style: terminalContentStyle(color: muted),
                       ),
-                    ] else if (widget.search.modelRowStatus(row) case final status?) ...[
-                      SizedBox(width: cell.width * 2),
-                      Text(
-                        status,
-                        key: ValueKey('model-row-status:${row.id}'),
-                        maxLines: 1,
-                        style: terminalContentStyle(
-                          color: underApi
-                              ? theme.foreground
-                              : widget.search.modelRowLive(row) ||
-                                    status == 'Suggested'
-                              ? const Color(0xFF86E6A3)
-                              : muted,
+                    ] else if (row.isModel) ...[
+                      // A model of yours: its size and speed, in columns that line up down the list —
+                      // when the list is wide enough to keep its name readable beside them.
+                      if (_modelFacts(row, constraints.maxWidth, cell)
+                          case final facts?) ...[
+                        SizedBox(width: cell.width * 2),
+                        Text(
+                          facts,
+                          key: ValueKey('model-row-facts:${row.id}'),
+                          maxLines: 1,
+                          style: terminalContentStyle(color: muted),
                         ),
-                      ),
+                      ],
+                      if (widget.search.modelRowStatus(row)
+                          case final status?) ...[
+                        SizedBox(width: cell.width * 2),
+                        _modelRowWord(
+                          row,
+                          status,
+                          aligned:
+                              _modelFacts(row, constraints.maxWidth, cell) !=
+                              null,
+                          // Pale green reads on a dark ground only; a light one
+                          // takes its scheme's own green.
+                          live: theme.background.computeLuminance() > .5
+                              ? theme.green
+                              : const Color(0xFF86E6A3),
+                          foreground: theme.foreground,
+                          warning: theme.yellow,
+                          muted: muted,
+                          cell: cell,
+                        ),
+                      ] else if (_modelFacts(row, constraints.maxWidth, cell) !=
+                          null)
+                        SizedBox(width: cell.width * (2 + _modelWordColumns)),
                     ],
                     if (widget.unavailableReason case final reason?) ...[
                       SizedBox(width: cell.width * 2),
@@ -1542,7 +1603,7 @@ class _SearchRowContentState extends State<_SearchRowContent> {
             snippet,
             style: widget.terminal
                 ? boxMonoStyle(color: kBoxFaint)
-                : boxMonoStyle(color: Colors.white54),
+                : boxMonoStyle(color: kBoxFaint),
           )
         : widget.terminal && row.promptContext != null
         ? PromptContextView(
@@ -1555,15 +1616,11 @@ class _SearchRowContentState extends State<_SearchRowContent> {
             iconOffset: row.detailBranchOffset ?? 0,
             inlineIcon: widget.terminal || row.detailBranchOffset == null
                 ? null
-                : const Icon(
-                    LucideIcons.gitBranch300,
-                    size: 12,
-                    color: Colors.white60,
-                  ),
+                : Icon(LucideIcons.gitBranch300, size: 12, color: boxText(.60)),
             matches: matches.where((match) => !match.title),
             style: widget.terminal
                 ? boxMonoStyle(color: kBoxFaint)
-                : boxMonoStyle(color: Colors.white54),
+                : boxMonoStyle(color: kBoxFaint),
           )
         : null;
     return widget.stacked
@@ -1802,7 +1859,7 @@ class SwarmSearchCount extends StatelessWidget {
             key: const ValueKey('swarm-search-count'),
             style: terminal
                 ? boxMonoStyle(color: kBoxFaint)
-                : boxMonoStyle(color: Colors.white54),
+                : boxMonoStyle(color: kBoxFaint),
           ),
         );
       },

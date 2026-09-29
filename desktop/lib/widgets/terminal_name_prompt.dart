@@ -192,7 +192,7 @@ class _TerminalNamePromptState extends State<TerminalNamePrompt> {
                                   heightFactor: 1,
                                   child: Text(
                                     'name >',
-                                    style: boxMonoStyle(color: Colors.white70),
+                                    style: boxMonoStyle(color: boxText(.70)),
                                   ),
                                 ),
                               ),

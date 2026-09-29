@@ -28,7 +28,7 @@ void main() {
     expect(AppColors.accent, grid.AppPalette.accentOnSurface);
     expect(AppColors.success, grid.AppPalette.online);
     expect(AppColors.warning, grid.AppPalette.warn);
-    // Dark-only on the phone: the error ink tuned for a dark card.
+    // Graphite, the default palette, is dark: the error ink tuned for a dark card.
     expect(grid.AppTheme.isDark, isTrue);
     expect(AppColors.danger, const Color(0xFFF2544B));
   });

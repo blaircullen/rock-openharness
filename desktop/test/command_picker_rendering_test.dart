@@ -309,7 +309,7 @@ void main() {
       await tester.enterText(_input, '?');
       await tester.pumpAndSettle();
       expect(search.hasPreview, isTrue);
-      expect(find.text('No recent session text available.'), findsNothing);
+      expect(find.text('No recent harness text available.'), findsNothing);
       expect(
         tester.widget<TextField>(_input).controller,
         same(field.controller),

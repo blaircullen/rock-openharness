@@ -130,7 +130,7 @@ class _DeleteMachinePromptState extends State<_DeleteMachinePrompt> {
                       const SizedBox(height: 8),
                       Text(
                         'Delete this machine from your account and close its panes in this window?',
-                        style: boxMonoStyle(color: Colors.white70),
+                        style: boxMonoStyle(color: boxText(.70)),
                       ),
                       const SizedBox(height: 12),
                       if (!_deleting)

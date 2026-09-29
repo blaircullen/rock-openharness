@@ -5,16 +5,16 @@ import { readAuthSession } from '../lib/authSession.js'
 import { TeamError } from './model.js'
 import { teamRpc } from './client.js'
 
-const usage = `Harness channel — each tab is a swarm
+const usage = `Harness channel — swarm collaboration
 
   harness channel list
-  harness channel --tab TAB_ID history|members
-  harness channel --tab TAB_ID consult --from-machine MACHINE_ID --from-agent AGENT_ID [--id OPERATION_ID]
+  harness channel --tab SWARM_ID history|members
+  harness channel --tab SWARM_ID consult --from-machine MACHINE_ID --from-agent AGENT_ID [--id OPERATION_ID]
 
-Consult instructs that agent to discover relevant peers in its tab and continue.
+Consult instructs that agent to discover relevant peers in its swarm and continue.
 It does not open a picker or choose a recipient for the agent. Members and history
 only read the channel. Agents use the scoped team commands in their introduction.
---machine chooses a connected daemon; channel requests route to the tab's saved host.
+--machine chooses a connected daemon; channel requests route to the swarm's saved host.
 Use --json for structured output. Retry an uncertain consult with the same --id.`
 
 export function parseChannelArgs(argv: readonly string[], defaults: { port: number; machineId: string }) {
@@ -35,7 +35,7 @@ export function parseChannelArgs(argv: readonly string[], defaults: { port: numb
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new TeamError('USAGE', 'Choose a valid daemon port.')
   const payload: Record<string, unknown> = { action: action === 'list' ? 'channel_list' : action === 'consult' ? 'channel_consult' : 'channel_get' }
   if (action !== 'list') {
-    if (!values.get('--tab')) throw new TeamError('USAGE', 'Choose a channel with --tab. Use channel list to read the saved tabs.')
+    if (!values.get('--tab')) throw new TeamError('USAGE', 'Choose a channel with --tab. Use channel list to read the saved swarms.')
     payload.tabId = values.get('--tab')
   }
   if (action === 'consult') {

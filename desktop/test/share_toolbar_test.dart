@@ -390,7 +390,7 @@ void main() {
         'agent.share',
       );
       expect(
-        shortcutRows().where((row) => row.label == 'Share the focused agent'),
+        shortcutRows().where((row) => row.label == 'Share the focused harness'),
         hasLength(1),
       );
       expect(nativeKeymapSnapshot(keymap).toString(), contains('shareAgent'));

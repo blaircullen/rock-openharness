@@ -55,7 +55,7 @@ void main() {
 
     expect(find.text('Second'), findsOneWidget);
     expect(find.text('Third'), findsOneWidget);
-    expect(find.text('New Tab'), findsOneWidget);
+    expect(find.text('New Swarm'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('move-pane-destination-2')),
       findsOneWidget,
@@ -148,7 +148,7 @@ void main() {
     final (app, source) = await _open(tester);
     final before = app.swarms.length;
 
-    await tester.tap(find.text('New Tab'));
+    await tester.tap(find.text('New Swarm'));
     await tester.pumpAndSettle();
 
     expect(app.swarms.length, before + 1);

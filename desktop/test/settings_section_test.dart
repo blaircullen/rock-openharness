@@ -1,4 +1,4 @@
-// Debug and Tracking are developer furniture, so a shipped build hides them. The flag behind that
+// Debug is developer furniture, so a shipped build hides it. The flag behind that
 // is a compile-time const and a test run has it ON — which is the whole difficulty, since the
 // shape worth guarding is the one no test build has. `settingsGroupsFor` takes the gate as an
 // argument for exactly this.
@@ -17,7 +17,7 @@ void main() {
     expect(kDebugSurfaceEnabled, isTrue, reason: 'tests run in debug mode');
     expect(
       sectionsOf(settingsGroups),
-      containsAll([SettingsSection.debug, SettingsSection.tracking]),
+      contains(SettingsSection.debug),
     );
   });
 
@@ -38,6 +38,7 @@ void main() {
       SettingsSection.experimental,
       if (!kIsWeb) SettingsSection.devices,
       SettingsSection.account,
+      SettingsSection.profiles,
       SettingsSection.shortcuts,
       SettingsSection.about,
     ]);

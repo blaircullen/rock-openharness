@@ -59,7 +59,7 @@ List<PhoneCommand> phoneSearchCommands(
     PhoneCommand(
       id: 'app.help',
       title: 'Help: how Harness works',
-      detail: 'Computers, agents, harnesses and the gestures',
+      detail: 'Computers, agents, harnesses, swarms and gestures',
       run: () => openHowItWorks(context),
     ),
   ];

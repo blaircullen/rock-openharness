@@ -319,7 +319,7 @@ class _HarnessCommandBarState extends State<HarnessCommandBar> {
                 children: [
                   if (!widget.compact) ...[
                     Tooltip(
-                      message: 'When you submit, your request and short session excerpts go to JEV through OpenRouter. Typing stays on this computer.',
+                      message: 'When you submit, your request and short harness excerpts go to JEV through OpenRouter. Typing stays on this computer.',
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -473,7 +473,7 @@ class _HarnessCommandBarState extends State<HarnessCommandBar> {
                 children: [
                   TextButton(
                     onPressed: () =>
-                        _example('Show me sessions that need a review'),
+                        _example('Show me harnesses that need a review'),
                     child: const Text('Find work'),
                   ),
                   TextButton(
@@ -577,7 +577,7 @@ class _HarnessCommandBarState extends State<HarnessCommandBar> {
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        'Current sessions only · checks changed activity once a minute · alerts appear here',
+                        'Current harnesses only · checks changed activity once a minute · alerts appear here',
                         style: grid.AppType.monoMeta(
                           color: grid.AppPalette.textFaint,
                         ),
@@ -650,7 +650,7 @@ class _HarnessCommandBarState extends State<HarnessCommandBar> {
                   watch.error ??
                       (watch.checking
                           ? 'Checking recent activity…'
-                          : '${watch.matches.length} matches · watching ${watch.scope.length} sessions'),
+                          : '${watch.matches.length} matches · watching ${watch.scope.length} harnesses'),
                   style: grid.AppType.monoMeta(
                     color: grid.AppPalette.textSecondary,
                   ),

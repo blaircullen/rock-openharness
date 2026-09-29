@@ -22,6 +22,7 @@ export async function teamRequest(service: TeamService, payload: Record<string, 
     if (action === 'list') return service.list(actor)
     if (action === 'create') return { team: await service.create(payload, actor) }
     const teamId = OperationId.parse(payload.teamId)
+    await service.authorizeTask(teamId, actor, action)
     switch (action) {
       case 'get': return { team: await service.snapshot(teamId, actor) }
       case 'members': {
@@ -30,7 +31,12 @@ export async function teamRequest(service: TeamService, payload: Record<string, 
           ...(actor.kind === 'member' ? { memberId: service.memberId(teamId, actor) } : {}) }
       }
       case 'ask': return { exchange: service.ask(teamId, { ...payload, from: actor.kind === 'member' ? service.memberId(teamId, actor) : payload.from }, actor) }
-      case 'reply': return { exchange: service.reply(teamId, OperationId.parse(payload.questionId), payload.text, payload.evidence, actor, payload.memberId as string | undefined) }
+      case 'reply': {
+        const questionId = OperationId.parse(payload.questionId)
+        const exchange = service.reply(teamId, questionId, payload.text, payload.evidence, actor, payload.memberId as string | undefined)
+        await service.questionReplied(teamId, questionId, actor)
+        return { exchange }
+      }
       case 'inbox': return service.inbox(teamId, actor, payload.memberId as string | undefined)
       case 'status': return { exchange: await service.readStatus(teamId, OperationId.parse(payload.questionId), actor) }
       case 'cancel': return { exchange: service.cancel(teamId, OperationId.parse(payload.questionId), actor) }

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startHookServer, type HookServerHandlers, chooseHookAgent, knownTranscriptFor } from './hookServer.js'
-import type { RegisteredSession } from './lib/registry.js'
+import { registry, type RegisteredSession } from './lib/registry.js'
 import { env } from './config/env.js'
 import { readHookCredential } from './lib/hookAuth.js'
 import { CommandBarService } from './lib/commandBar.js'
@@ -63,6 +63,23 @@ async function start(overrides: Partial<HookServerHandlers> = {}) {
 }
 
 describe('process-owned hook server', () => {
+  it('attributes prompt text only after resolving the actual engine process', async () => {
+    const entry = { engine: 'claude', agentId: 'agent-scope', sessionId: 'session-scope', runtimes: [{ backend: 'tmux', paneId: '%41' }] } as RegisteredSession
+    const onPromptSubmitted = vi.fn()
+    const resolveHookAgent = vi.fn(async () => null as RegisteredSession | null)
+    const registration = vi.spyOn(registry, 'register').mockReturnValue({ entry, isNew: false, evicted: null, rebound: null, orphaned: null })
+    try {
+      const { base, headers } = await start({ onPromptSubmitted, resolveHookAgent })
+      const submit = () => fetch(`${base}/api/hook/session-start`, { method: 'POST', headers, body: JSON.stringify({
+        engine: 'claude', sessionId: entry.sessionId, tmuxPane: '%41', hookEvent: 'UserPromptSubmit', prompt: 'ask a peer\nfor evidence',
+      }) })
+      await submit()
+      expect(onPromptSubmitted).not.toHaveBeenCalled()
+      resolveHookAgent.mockResolvedValue(entry)
+      expect((await submit()).status).toBe(200)
+      expect(onPromptSubmitted).toHaveBeenCalledExactlyOnceWith('agent-scope', 'ask a peer\nfor evidence')
+    } finally { registration.mockRestore() }
+  })
   it('runs targeted resolution and rejects a hook without a matching pane engine process', async () => {
     const resolveHookAgent = vi.fn(async () => null)
     const { handlers, base, headers } = await start({ resolveHookAgent })

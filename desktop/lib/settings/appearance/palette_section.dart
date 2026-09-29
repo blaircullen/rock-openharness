@@ -81,12 +81,17 @@ class _PaletteChoice extends StatelessWidget {
           style: ButtonStyle(
             padding: const WidgetStatePropertyAll(EdgeInsets.all(8)),
             backgroundColor: WidgetStatePropertyAll(palette.panel),
-            overlayColor: const WidgetStatePropertyAll(Colors.white10),
+            // Each card is drawn in its own palette, so its ink is that
+            // palette's foreground — white on the dark ones, near-black on
+            // the light ones — whatever the app is wearing.
+            overlayColor: WidgetStatePropertyAll(
+              palette.foreground.withValues(alpha: .10),
+            ),
             side: WidgetStateProperty.resolveWith(
               (states) => BorderSide(
                 color: selected || states.contains(WidgetState.focused)
                     ? palette.accent
-                    : Colors.white12,
+                    : palette.foreground.withValues(alpha: .12),
                 width: selected || states.contains(WidgetState.focused)
                     ? 1.5
                     : 1,
@@ -106,7 +111,7 @@ class _PaletteChoice extends StatelessWidget {
                   Expanded(
                     child: Text(
                       palette.label,
-                      style: grid.AppType.label(color: Colors.white),
+                      style: grid.AppType.label(color: palette.foreground),
                     ),
                   ),
                   SizedBox(
@@ -153,8 +158,8 @@ class _WorkspacePreview extends StatelessWidget {
                           child: Container(
                             width: 3,
                             height: 3,
-                            decoration: const BoxDecoration(
-                              color: Colors.white38,
+                            decoration: BoxDecoration(
+                              color: palette.foreground.withValues(alpha: .38),
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -214,7 +219,9 @@ class _WorkspacePreview extends StatelessWidget {
                                   widthFactor: 0.85,
                                   child: Container(
                                     height: 2,
-                                    color: Colors.white54,
+                                    color: palette.foreground.withValues(
+                                      alpha: .54,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -222,7 +229,9 @@ class _WorkspacePreview extends StatelessWidget {
                                   widthFactor: 0.6,
                                   child: Container(
                                     height: 2,
-                                    color: Colors.white30,
+                                    color: palette.foreground.withValues(
+                                      alpha: .30,
+                                    ),
                                   ),
                                 ),
                               ],

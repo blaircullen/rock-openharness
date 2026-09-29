@@ -461,7 +461,7 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
     focusNode: first ? _actionFocus : null,
     onPressed: action,
     style: TextButton.styleFrom(
-      foregroundColor: danger ? Colors.orangeAccent : Colors.white70,
+      foregroundColor: danger ? boxErrorText : boxText(.70),
       textStyle: boxMonoStyle(),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       minimumSize: const Size(0, 30),
@@ -504,7 +504,7 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
               heightFactor: 1,
               child: Text(
                 confirm ? '   again >' : 'password >',
-                style: boxMonoStyle(color: Colors.white70),
+                style: boxMonoStyle(color: boxText(.70)),
               ),
             ),
           ),
@@ -565,7 +565,7 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
       if (_editing) ...[
         Text(
           'Use this password on the other machine to link to this computer.',
-          style: boxMonoStyle(color: Colors.white70),
+          style: boxMonoStyle(color: boxText(.70)),
         ),
         const SizedBox(height: 12),
         _field(confirm: false),
@@ -590,14 +590,14 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
         const SizedBox(height: 8),
         Text(
           'On the other machine: Link machine → select this computer → enter its password.',
-          style: boxMonoStyle(color: Colors.white70),
+          style: boxMonoStyle(color: boxText(.70)),
         ),
         if (_status!.fingerprint case final fingerprint?) ...[
           const SizedBox(height: 12),
           Text('fingerprint', style: boxMonoStyle(color: kBoxFaint)),
           SelectableText(
             fingerprint,
-            style: boxMonoStyle(color: Colors.white70),
+            style: boxMonoStyle(color: boxText(.70)),
           ),
         ],
         if (_status!.setAt case final date?)
@@ -647,7 +647,7 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
   List<Widget> _linksBody() => [
     Text(
       'Machines this computer can connect to.',
-      style: boxMonoStyle(color: Colors.white70),
+      style: boxMonoStyle(color: boxText(.70)),
     ),
     const SizedBox(height: 8),
     Align(
@@ -694,7 +694,7 @@ class _LinkMachineDialogState extends State<_LinkMachineDialog> {
         clear
             ? 'Prevent new links using this password? Existing links and sessions stay connected.'
             : 'Remove this computer’s saved link to ${_name(_unlinkTarget!)}? A new connection will need that machine’s password.',
-        style: boxMonoStyle(color: Colors.white70),
+        style: boxMonoStyle(color: boxText(.70)),
       ),
       const SizedBox(height: 14),
       Wrap(

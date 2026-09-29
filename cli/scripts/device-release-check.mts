@@ -125,6 +125,26 @@ await check('built-wire-codec-compatibility',()=>{
   for(const chunk of [1,7,512,8200]){const d=new Decoder();let seen=0;for(let i=0;i<wire.length;i+=chunk)d.feed(wire.subarray(i,i+chunk),(f:any)=>{seen++;assert.equal(f.type,CableType.Pcm);assert.deepEqual(Buffer.from(f.payload),bytes)});assert.equal(seen,1)}
  }
 })
+await check('notification-read-roundtrip-and-stale-occurrences',async()=>{
+ const read=nodes.find(n=>ts.isMethodDeclaration(n)&&n.name.getText(ast)==='readNotification'&&n.getText(ast).includes('this.wiring'))
+ assert(read,'Built host must validate exact notification occurrences')
+ const Host=vm.runInContext(`(class {${read.getText(ast)}})`,sandbox), owner=new Host(), receipts:any[]=[]
+ owner.unread=[{agentId:'a',machineId:'remote',question:true,text:'May I publish?',readToken:'question-2'}]
+ owner.wiring={notificationRead:(...args:any[])=>receipts.push(args)}
+ const x=setup();x.host.readNotification=owner.readNotification.bind(owner)
+ x.host.openAgent=()=>{throw new Error('Reading must not change focus')}
+ await x.session.replaceNotifications(owner.unread)
+ assert.equal(x.sent.at(-1).items[0].readToken,'question-2')
+ for(const token of ['question-1','', 'x'.repeat(64)])await x.feed({t:'notif.read',agentId:'a',readToken:token},1)
+ assert.equal(receipts.length,0)
+ await x.feed({t:'notif.read',agentId:'a',readToken:'question-2'},1)
+ assert.deepEqual(plain(receipts),[['remote','a','question-2']])
+ await x.session.agentSeen('a','question-2')
+ assert.deepEqual(plain(x.sent.at(-1)),{t:'notif.seen',agentId:'a',readToken:'question-2'})
+ owner.unread=[];await x.session.replaceNotifications(owner.unread)
+ await x.feed({t:'notif.read',agentId:'a',readToken:'question-2'},7)
+ assert.equal(receipts.length,1);assert.deepEqual(plain(x.sent.at(-1)),{t:'notif.replace',items:[]})
+})
 await check('artifact-status-wiring' ,()=>{
  assert(method('refreshFocusedActivity'),'Installed bridge lacks focused activity delivery')
  assert(method('tick')?.getText(ast).includes('refreshFocusedActivity'),'Activity recovery is never scheduled')

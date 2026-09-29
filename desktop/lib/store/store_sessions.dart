@@ -43,8 +43,8 @@ class StoreSessions extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   sessions.isEmpty
-                      ? 'Recorded sessions will appear here when they are available in your catalog.'
-                      : '${sessions.length} harnesses to explore. Watch a real session, then try the same prompt.',
+                      ? 'Recorded runs will appear here when they are available in your catalog.'
+                      : '${sessions.length} harness${sessions.length == 1 ? '' : 'es'} to explore. Watch a recorded run, then try the same prompt.',
                   style: grid.AppType.body(
                     height: 1.5,
                     color: grid.AppPalette.textSecondary,
@@ -124,7 +124,7 @@ class _SessionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Semantics(
-              label: 'Watch ${entry.name} recorded session',
+              label: 'Watch ${entry.name} recorded run',
               button: true,
               child: AspectRatio(
                 aspectRatio: 16 / 10,
@@ -166,7 +166,7 @@ class _SessionCard extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Watch session',
+                                  'Watch run',
                                   style: grid.AppType.monoLabel(
                                     color: Colors.white,
                                   ),
@@ -246,7 +246,7 @@ class _SessionCard extends StatelessWidget {
                   SizedBox(
                     height: 51 * scale,
                     child: Text(
-                      example.caption ?? 'A recorded session. Open the harness for the prompt and more examples.',
+                      example.caption ?? 'A recorded run. Open the harness for the prompt and more examples.',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: grid.AppType.body(
@@ -289,7 +289,7 @@ class _PosterFallback extends StatelessWidget {
         StoreAppIcon(entry: session.entry, size: 48),
         const SizedBox(height: 12),
         Text(
-          failed ? 'Preview unavailable' : 'Recorded session',
+          failed ? 'Preview unavailable' : 'Recorded run',
           style: grid.AppType.caption(color: grid.AppPalette.textSecondary),
         ),
       ],

@@ -1,8 +1,8 @@
 # Characters in Habitat
 
-Tim and Tux run the same Habitat application. Tap the character to talk; hold,
-then slide down to **controls → Companion / gestures → Character** to switch.
-The choice is saved on the dial and survives a restart. Swapping artwork keeps
+Tim and Tux run the same Habitat application. Tap the character to talk; hold
+to open Tabs. The simplified picker has no Controls entry. The existing character
+preference is saved on the dial and survives a restart. Swapping artwork keeps
 the current pane, voice session, unread results, preferences and navigation.
 
 `firmware/main/ui/habitat/character.h` is the application interface. Characters
@@ -47,8 +47,7 @@ Activity retains the existing 2.048-second highlight cycle: 20 steps at 64 ms
 and a 768 ms rest. A completed result replaces the full-size creature with the
 fixed small portrait and recap. Old results never appear during live work.
 A held caption stays still through a phase boundary, keeping its curved end
-letters tappable. Both phases open the pane picker. Hold and slide up also
-opens panes. Quiet mode, sleeping and touches stop the highlight sweep.
+letters tappable. Both phases open the pane picker. Holding the creature opens Tabs directly. Quiet mode, sleeping and touches stop the highlight sweep.
 Curved glyph masks remain cached between caption changes, including during
 colour fades; highlight updates redraw only the affected bands.
 
@@ -58,10 +57,10 @@ neutral text and a matching monochrome bell. This is a compile-time palette;
 normal builds keep purple.
 
 Notifications use a separate bottom bell with a broad 300 × 84 px target,
-starting below the central voice target. When empty, the bell is dim, has no
-zero count and does nothing on a tap. New unread messages make it bright with
-the unread count alongside. Tapping it opens the inbox; hold and slide right remains
-available for retained cards, including ones already read. Opening the inbox
+starting below the central voice target. When empty, the bell is absent and has
+no hit target. New unread messages make it visible with the unread count
+alongside. Tapping it opens the inbox, which retains cards that were already
+read until the host removes them. Opening the inbox
 chooses its first unread message. Completed and question messages use the same
 read-count rule, separate from whether a question remains unresolved. Tim and Tux no longer hold an envelope on any daily screen.
 The old letter art stays available to historical experiment renders.
@@ -366,3 +365,119 @@ Actual native-renderer output for the centered inbox cards and empty bell in
 bell is planned as a separate follow-up.
 
 ![Inbox card layouts and empty bell](assets/inbox-review-20260928.png)
+
+## Hold to switch tabs — 2026-09-28
+
+Orange revision `.orange.8` removes the four-direction hold menu. A stationary
+650 ms hold on the home creature opens Tabs immediately. That opening contact is
+consumed through release; it never also selects, starts voice or scrolls the app.
+Movement is classified before the hold deadline, including a delayed final sample.
+
+Tabs is a horizontal name carousel: drag with the finger, flick to advance, then
+tap the centered name to open. It has no row numbers, pane counts or list boxes.
+Long names wrap in the center. The active desktop tab uses the companion accent;
+other names use neutral text. Back and controls remain in a separate bottom row.
+The top home caption still opens panes, and the bell still opens unread messages.
+
+A 360 px page follows the finger directly, with soft bounded ends and a 224 ms
+integer ease on release. Fling projection is bounded. A contact during settling
+only brakes; a later stationary tap confirms. The 16 ms animation wake stops once
+settled. No floating point, heap allocation or extra framebuffer is introduced.
+Roster changes cancel stale contacts and preserve the centered tab by ID where
+possible; pane-count-only updates do not disturb browsing. All 24 tabs are
+reachable, independent of the desktop vertical-scroll direction preference.
+
+The bell is absent when there are no unread messages. An unread bell and its
+number keep their existing foreground and separate lower touch target. The pane
+name and activity remain visible even when Harness is behind another app.
+
+### Read once, clear everywhere
+
+The desktop assigns an opaque `readToken` to each new notification, including a
+new turn with identical text. `app_unread` and `notif.replace` carry it unchanged.
+After a card actually finishes rendering, the dial sends `notif.read` with its
+agent ID and that exact token through the existing background USB worker. The
+host validates against the latest unread list and emits `dial_notification_read`
+locally; the app checks the token again, clears its unread mark and withdraws its
+banner/system notification. It publishes the updated list to every connected
+machine and dial. Desktop reads/explicit dismissals use the same state.
+
+`agent_seen` / `notif.seen` also carry the token. A stale receipt cannot clear a
+new occurrence. Reading a question does not answer it or change focus. The card
+stays visible on the dial while being read, even after the app confirms removal;
+leaving the inbox drops that retained card on the next snapshot. Automatic
+expiry of a desktop banner is not a read. Pending question state remains separate.
+
+The dial holds at most 24 receipts in RAM, retries each at most every two seconds (one enqueue per tick),
+and reserves the last action slot for touch/audio. It writes neither flash nor
+extra frames when idle. Reconnect snapshots recover a lost receipt. This protocol
+requires the matching desktop and CLI update; older hosts keep local-only reads.
+
+The desktop also remembers which pending question notification was explicitly
+read. A reconnect can restore the question without bringing back its bell entry;
+a matching answer or a new question resets that receipt. Both the native and
+Flutter desktop inbox acknowledge a successful Open the same way as a device
+read, while stale navigation and read tokens leave a newer message unread.
+
+Actual native renderer output, using test fixture content:
+
+![Hold-to-switch tabs and notification states](assets/tabs-notifications-20260928.png)
+
+
+## Short swipes and neighboring tabs — 2026-09-28
+
+Orange revision `.orange.9` brings the previous and next names into view on
+either side of the centered tab. Neighboring names are dimmer and clipped to
+the safe central viewport. Short names align toward the visible edge of their
+page, moving smoothly into centered alignment as they approach the middle.
+Names wrap in a 12-cell column with up to six rows. Each visible name owns its
+tap, so tapping a neighbor opens that tab. There is no Controls entry; only a
+single centered Back arrow below the names.
+
+Page spacing is 228 px with 2:1 drag tracking. A slow 58 px swipe reliably
+advances one tab in either direction, down from 180–181 px. Flick projection
+is capped at half a page and release settles in 192 ms. Touching during a settle
+still only brakes it; roster changes still cancel stale contacts. Browsing sends
+no desktop requests. The previous hold, voice, scrolling and read-sync rules stay
+in place.
+
+The renderer now supports authored `→` in both normal recap text and curved
+labels. The recap-size `↗` also has its own correctly sized atlas instead of
+using the smaller title glyph. The three new glyphs occupy 408 pixel bytes,
+plus four bytes of curved ink bounds; no font engine, heap or framebuffer is
+added. The exact example `Egg → developing cracks → hatch → baby Tim → growing
+Tim → adult Tim.` is part of the native rendering fixtures.
+
+![Short swipes, neighboring names and text arrows](assets/tabs-peek-arrows-20260928.png)
+
+
+## Readable Unicode fallbacks — 2026-09-28
+
+Orange revision `.orange.10` normalizes display text before measuring, wrapping
+and centering it. Existing supported glyphs keep their pixels; fractions use
+readable ASCII, so `⅓` becomes `1/3` and `1⅓` becomes `1 1/3`. Unsupported
+compatibility letters, ligatures, math operators, arrows and common emoji get
+text equivalents. Negation is preserved: `≠` becomes `!=`, never `=`.
+
+A scalar without an equivalent displays its explicit `[U+XXXX]` identifier
+instead of a misleading question mark. Malformed UTF-8 uses `[U+FFFD]`. This
+is a bounded display fallback, not a full Unicode font or language renderer.
+The source message, pane IDs and notification receipts stay untouched. Approval
+labels retain strict native-glyph and complete-fit checks; a transliteration
+does not make an unsupported question safe to answer from the dial.
+
+The shared path covers summaries, inbox cards, ordinary labels and curved text.
+The existing 90-character recap budget applies after expansion. The table holds
+2,080 equivalents in 49 ranges, 1,152 packed entries and 1,718 string bytes
+(about 6.8 KiB of flash data). It adds no heap allocation, framebuffer or runtime
+Unicode library. Creature artwork keeps its direct ASCII path. Regenerate with
+Python 3.14 / Unicode 16.0.0 using
+`firmware/scripts/gen_display_fallbacks.py`; `--check` verifies the committed table.
+Ordinary builds do not require that Python version.
+
+Validation covers every valid Unicode scalar, 3,000 randomized byte strings,
+bounded copies, mixed fractions, math meaning, raw-versus-normalized wrap/arc
+pixels, incremental redraws and unmodified notification text. The exact `⅓`
+report is exercised in both home and inbox layouts for both characters.
+
+![Readable fraction and symbol fallbacks](assets/unicode-fallbacks-20260928.png)

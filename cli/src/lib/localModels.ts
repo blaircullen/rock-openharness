@@ -64,6 +64,10 @@ export interface LocalModel {
   id: string; name: string; state: 'available' | 'downloaded' | 'running'
   sizeBytes?: number; quant?: string; recommended?: boolean; canStart: boolean; canStop: boolean
   tokensPerSecond?: number; requests?: number; windowSeconds?: number
+  /** What the catalog says of this model on THIS machine, for choosing between models before any
+   * download: the window it will be given, its estimated speed, and its size in billions of
+   * parameters. Absent for a model found on disk, which the catalog never sized. */
+  contextWindow?: number; estTokS?: number; paramsB?: number
   operation?: ModelOperation
   /** Running here, parked while its grid sleeps (additive: an older desktop reads plain `running`). */
   gridAsleep?: boolean
@@ -81,14 +85,18 @@ export interface LocalModelsSnapshot {
   notice?: string
   observedAt: string; busy: boolean
   supportsDownload?: boolean
+  /** Free space where downloads land, so a download's size can be read against it. */
+  freeDiskBytes?: number
 }
-interface Candidate {
+export interface Candidate {
   id: string; name: string; pull: string; file: string; files: string[]; size: number; quant: string
   /** The window to pin at start: the catalog's fit for this machine, which is the largest it can
    * hold. Absent for a model found on disk, which the catalog never sized — the engine then measures
    * free memory at load and takes the largest window that fits (`grid join` without `--ctx-size`). */
   context?: number
   aliases?: string[]
+  /** The catalog's estimate for this machine, and the model's size in billions of parameters. */
+  estTokS?: number; paramsB?: number
 }
 /** `live`: its heartbeat sidecar is fresh (the grid is hearing from it). `pidAlive`: the process its run
  *  record names exists — the only liveness that holds while the grid sleeps and the sidecar goes stale. */
@@ -137,9 +145,85 @@ export function compatibleModels(raw: unknown): Candidate[] {
       try { return [basename(decodeURIComponent(new URL(str(url)).pathname))] } catch { return [] }
     })
     seen.add(id)
+    const estTokS = num(fit.est_tok_s), paramsB = num(row.params_b)
     return [{ id, name: cleanName(id), pull, file, files: files.length ? files : [file], size,
-      quant: str(fit.version), context: fitted }]
+      quant: str(fit.version), context: fitted,
+      ...(estTokS ? { estTokS } : {}), ...(paramsB ? { paramsB } : {}) }]
   })
+}
+
+/** One model, whatever its quantization: `Qwen3.6-35B-A3B`, `Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf` and
+ * `unsloth/Qwen3.6-35B-A3B-GGUF` are the same model. */
+export function modelFamily(name: string): string {
+  return cleanName(name).toLowerCase()
+    .replace(/[-_.](?:ud[-_])?(?:iq\d\w*|q\d\w*|mxfp\d\w*|bf16|fp16|f16)$/, '')
+}
+
+/** A catalog download is not offered for a model this machine already has in another quantization:
+ * running Qwen3.6-35B-A3B at Q5_K_XL, the catalog's Q4_K_M of it is a second copy, 20 GB of it, of
+ * the same model. A download already under way stays listed, so its progress has a row. */
+export function withoutCopiesOfOwned(models: LocalModel[]): LocalModel[] {
+  const owned = new Set(models.filter(model => model.state !== 'available').map(model => modelFamily(model.name)))
+  return models.filter(model => model.state !== 'available' || model.canStop || model.operation?.phase === 'running' ||
+    !owned.has(modelFamily(model.name)))
+}
+
+/** The speed a coding agent can work at: an agent waits on every token it writes, and below this the
+ * catalog's estimate for this machine reads as a model that crawls. */
+export const USABLE_TOK_S = 15
+
+/** Catalog models that are not for running an agent on: safety classifiers such as gpt-oss-safeguard
+ * or Llama Guard, which answer "safe"/"unsafe" rather than code. */
+const NOT_FOR_AGENTS = /(?:^|[-_/])(?:safeguard|guard|shieldgemma)(?:[-_.]|$)/i
+
+/** Roughly how many bits a weight takes at [quant]: Q4 about 4.8, IQ4 about 4.3, MXFP4 4.25. */
+function bitsPerWeight(quant: string): number {
+  const q = quant.toUpperCase()
+  if (/MXFP4/.test(q)) return 4.25
+  if (/BF16|FP16|F16/.test(q)) return 16
+  const digit = /(IQ|Q)(\d)/.exec(q)
+  return digit ? Number(digit[2]) + (digit[1] === 'IQ' ? 0.3 : 0.8) : 4.8
+}
+
+/** A model's size in billions of parameters: the catalog's count, else read off its weights and quant. */
+function paramsOf(candidate: Candidate): number {
+  return candidate.paramsB ?? candidate.size * 8 / bitsPerWeight(candidate.quant) / 1e9
+}
+
+/** A model and its variants — MTP, QAT, REAP-pruned, instruct/thinking/`-it` — as one base model:
+ * `Qwen3.6-35B-A3B-MTP` and `Qwen3.6-35B-A3B`, `gemma-4-E4B-it-qat` and `gemma-4-E4B-it`. A fine-tune
+ * under its own name (`Qwen-AgentWorld-35B-A3B`) is a model of its own. */
+export function baseModel(name: string): string {
+  let base = modelFamily(name)
+  for (;;) {
+    const next = base.replace(/[-_](?:mtp|qat|reap(?:-\d+b)?(?:-a\d+b)?|instruct|thinking|it)$/, '')
+    if (next === base) return base
+    base = next
+  }
+}
+
+/** The order the Get list offers a machine's downloads in. Every candidate already fits the machine
+ * with a coding agent's context ([compatibleModels]); among them:
+ *  1. fast enough to work with first — the catalog's estimate for this machine at [USABLE_TOK_S] or
+ *     more. That is what preferring MoE models on a bandwidth-bound Mac comes to, read per machine, and
+ *     it lets dense models in on a machine fast enough for them;
+ *  2. then bigger first, the better model;
+ *  3. then the catalog's own order, which is popularity among what fits.
+ * And one version of each base model ([baseModel]) before any second one, so MTP, QAT and pruned
+ * copies of one model never fill the top of the list: they follow every other model, in this order. */
+export function rankForCoding<T extends Candidate>(candidates: T[]): T[] {
+  const fast = (candidate: Candidate): number => (candidate.estTokS ?? 0) >= USABLE_TOK_S ? 1 : 0
+  const sorted = candidates.map((candidate, index) => ({ candidate, index })).sort((a, b) =>
+    fast(b.candidate) - fast(a.candidate) ||
+    Math.round(paramsOf(b.candidate)) - Math.round(paramsOf(a.candidate)) ||
+    a.index - b.index).map(({ candidate }) => candidate)
+  const seen = new Set<string>(), first: T[] = [], again: T[] = []
+  for (const candidate of sorted) {
+    const base = baseModel(candidate.name)
+    ;(seen.has(base) ? again : first).push(candidate)
+    seen.add(base)
+  }
+  return [...first, ...again]
 }
 
 export class LocalModels {
@@ -215,7 +299,7 @@ export class LocalModels {
       try {
         this.device = obj(await this.json(['device-info', '--json']))
         const catalog = obj(await this.catalog(this.device))
-        this.candidates = compatibleModels(catalog)
+        this.candidates = rankForCoding(compatibleModels(catalog).filter(candidate => !NOT_FOR_AGENTS.test(candidate.id)))
         // Prefer an already downloaded fitting quant rather than downloading
         // the catalog's default version of the same model again.
         for (let i = 0; i < this.candidates.length; i++) {
@@ -228,10 +312,6 @@ export class LocalModels {
             if (alternate && await this.downloaded(alternate)) { this.candidates[i] = alternate; break }
           }
         }
-        // A useful small download makes the first reply arrive sooner. Keep
-        // the catalog's relevance order within that group, and show all others.
-        const suggested = this.candidates.findIndex(c => c.size <= 8 * GiB && c.size >= GiB)
-        if (suggested > 0) this.candidates.unshift(...this.candidates.splice(suggested, 1))
         this.catalogError = undefined
         this.catalogAt = Date.now()
       } catch (error) {
@@ -464,6 +544,9 @@ export class LocalModels {
       const single = Array.isArray(node?.models) && node.models.length === 1
       return { id: candidate.id, name: candidate.name, state: running ? 'running' : available ? 'downloaded' : 'available',
         sizeBytes: candidate.size, quant: candidate.quant, recommended: index === 0,
+        ...(candidate.context ? { contextWindow: candidate.context } : {}),
+        ...(candidate.estTokS ? { estTokS: candidate.estTokS } : {}),
+        ...(candidate.paramsB ? { paramsB: candidate.paramsB } : {}),
         canStart: !inventoryError && (!this.catalogError || !candidate.pull) && !instance, canStop: !inventoryError && !!instance,
         // Device memory is deliberately not presented as this model's memory.
         tokensPerSecond: single && running ? num(node?.throughput_tok_s) : undefined,
@@ -479,9 +562,12 @@ export class LocalModels {
         operation: operation?.modelId === `local:${instance.file}` ? operation : undefined,
         ...(!serving && parked(instance) ? { gridAsleep: true } : {}) })
     }
-    const value: LocalModelsSnapshot = { models, memoryBytes: num(obj(this.device.memory).total_gb) === undefined ? undefined : this.device.memory.total_gb * GiB,
+    const freeDiskBytes = await statfs(join(this.home, 'models')).catch(() => statfs(this.home))
+      .then(disk => disk.bavail * disk.bsize, () => undefined)
+    const value: LocalModelsSnapshot = { models: withoutCopiesOfOwned(models), memoryBytes: num(obj(this.device.memory).total_gb) === undefined ? undefined : this.device.memory.total_gb * GiB,
       hardware: str(obj(this.device.machine).model || obj(this.device.cpu).brand), notice: inventoryError || this.catalogError,
-      observedAt: new Date().toISOString(), busy: !!this.active, supportsDownload: true }
+      observedAt: new Date().toISOString(), busy: !!this.active, supportsDownload: true,
+      ...(freeDiskBytes === undefined ? {} : { freeDiskBytes }) }
     this.cached = { grid, at: Date.now(), value }
     this.runningAtLastRead.set(grid, new Set(models.filter(model => model.state === 'running').map(model => model.id)))
     return value

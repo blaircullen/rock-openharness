@@ -53,7 +53,7 @@ List<_Destination> _destinationsFor(AppNotifier notifier, String sourceId) => [
           final count => '$count harnesses',
         },
       ),
-  const _Destination(label: 'New Tab', detail: 'a tab of its own'),
+  const _Destination(label: 'New Swarm', detail: 'a swarm of its own'),
 ];
 
 class _MovePanePalette extends StatefulWidget {

@@ -782,6 +782,9 @@ void main() {
     await tester.pump();
     app.adoptSessionForTest(terminal('a0', []));
     app.adoptSessionForTest(terminal('a1', []));
+    // Adoption changes focus without notifying; render its model control before
+    // measuring the creature so only the turn events differ below.
+    app.notifyListeners();
     await tester.pump();
     final beforeTurns = tester.getRect(slot);
     // a1 is in front: its turn is seen already; a0's is not.
@@ -1581,7 +1584,7 @@ void main() {
       await tester.pump();
       expect(
         find.text(
-          'learned "run-migrations-safely". every harness session will load it.',
+          'learned "run-migrations-safely". every harness will load it.',
         ),
         findsOneWidget,
       );

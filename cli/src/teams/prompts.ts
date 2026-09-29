@@ -21,7 +21,7 @@ function excerpt(text: string, bytes: number): string {
 
 export function introduction(team: Team, member: Member, command: string): string {
   return `[Harness ${team.channel ? 'swarm' : 'team'}: ${team.name}]\nYou are ${member.name}${member.role ? ` — ${member.role}` : ''}.\n`
-    + (team.channel ? `This tab is your swarm and collaboration channel (tab ${team.channel.tabId}). Discover and consult relevant peers here autonomously when your current task needs help. Stay within this swarm; cross-swarm consultation is not available. Switching the visible tab does not change this scope.\n` : 'The user connected these existing sessions as a team:\n')
+    + (team.channel ? `This is a membership notice for swarm ${team.name} (swarm ID ${team.channel.tabId}), not a change to your task’s scope. Before discovering or consulting peers for a user task, run ${command.split(' --machine ')[0]} --machine ${shellQuote(member.machineId)} context --agent ${shellQuote(member.agentId)}. It returns the command for the swarm where that task was submitted. Use that command, even if this harness also belongs to another swarm. Discover and consult relevant peers there autonomously when your task needs help. Missing origin means continue independently; never guess from an introduction or the visible swarm. Cross-swarm consultation is not available.\n` : 'The user connected these existing harnesses as a team:\n')
     + `${team.members.filter(m => m.enabled).map(m => `${m.name}: ${excerpt(m.role || 'Teammate', 180)}`).join('\n')}\n\n`
     + `${rules}\n\nUse these shell commands (keep the member key private):\n`
     + `${command} members\n${command} history\n${command} ask <teammate-name> 'question' --id <32-hex-operation-id>\n`

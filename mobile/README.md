@@ -1,6 +1,6 @@
 # Harness for iOS and Android
 
-A viewer onto the machines this device has linked — one agent at a time, on a phone.
+A viewer onto the machines this device has linked — one harness at a time, on a phone.
 
 Start with the [mobile team handoff](../docs/research/2026-09-28-phone-overnight.md)
 for recent changes, the code map, validation and outstanding product decisions.
@@ -35,7 +35,7 @@ The app it runs now lives under `lib/`, in the same folders the desktop app uses
 | `lib/auth/`, `lib/viewer/` | SSO, device linking, and the viewer's stand-ins for the harness CLI |
 | `lib/e2ee/` | the end-to-end encryption this app terminates itself |
 | `lib/terminal/`, `lib/widgets/` | the xterm session, the terminal panel and its chrome |
-| `lib/shared/`, `lib/analytics/`, `lib/logging/` | design system, analytics, file logs |
+| `lib/shared/`, `lib/logging/` | design system, file logs |
 | `third_party/xterm/` | the vendored, patched xterm 4.0.0 (see its `README.autonomous.md`) |
 
 Two folders are this package's own, and have no counterpart on the desktop:
@@ -49,17 +49,17 @@ Two folders are this package's own, and have no counterpart on the desktop:
 `lib/demo/` provides the offline sample runtime. `test/render/` captures the phone screens;
 `integration_test/tour_test.dart` opens `SampleApp` directly for the simulator walkthrough.
 
-## The account's tabs are the desk's, here too
+## The account’s swarms are the desk’s, here too
 
-The account's tabs are stored on the backend (`/api/desk`). `lib/state/desk_sync.dart` models
+The account’s swarms are stored on the backend (`/api/desk`). `lib/state/desk_sync.dart` models
 that shared document; `lib/state/phone_desk.dart` handles the phone's reads and explicit writes.
 The phone's `swarms` are temporary terminal containers for the pager, not a projection of the
-account's tabs. Swiping must never rewrite the shared desk.
+account’s swarms. Swiping must never rewrite the shared desk.
 
 The phone follows desk updates over machine relay sockets and polls every 15 seconds in the
-foreground. Creating or deleting a harness updates its desk membership; explicit tab operations
-also live in `PhoneDesk`. The current tab and position remain device-local. `lib/phone/desk_groups.dart`
-resolves the tab's agents for navigation.
+foreground. Creating or deleting a harness updates its desk membership; explicit swarm operations
+also live in `PhoneDesk`. The current swarm and position remain device-local. `lib/phone/desk_groups.dart`
+resolves the swarm’s harnesses for navigation.
 
 ## It is a VIEWER build, always
 

@@ -40,5 +40,46 @@ int main(void) {
         assert(ht_gesture_end(&g,233,233,1080)==HT_TOUCH_NONE);
         assert(tap(1200,233,233)==HT_TOUCH_TAP);
     }
-    puts("gestures: PASS (single release, slow tap, voice guard, holds, wrap + 20,000 drag/cancel traces)");
+    /*
+     * A WRITTEN CONTROL IS NOT A GESTURE, and this is the measurement that says why.
+     *
+     * ht_gesture_move() calls a contact "moved" at 12 px. On the Pro's 720 px face that is 10.01 px
+     * per mm, so the threshold is 1.20 mm — well inside the drift of a deliberate fingertip press.
+     * Any activation rule keyed on !moved therefore fires for a still finger and not for a real one,
+     * which on the glass reads as a button that works about half the time.
+     *
+     * ui_habitat.c's rule is the one every touch button uses instead: down on the control, up on the
+     * control. The two asserts below lock both halves of that in — drift inside activates, drift out
+     * cancels — and the loop records that `moved` is true throughout, so nobody re-derives the old
+     * rule from the resolver and reintroduces the bug.
+     */
+    {
+        const int rx = 144, ry = 628, rw = 432, rh = 88;   // the widened [discard] target
+        const double pxmm = 10.01;
+        int cx = rx + rw / 2, cy = ry + rh / 2;
+        int inside_hits = 0, moved_seen = 0;
+        for (int tenths = 0; tenths <= 40; tenths++) {          // 0.0 .. 4.0 mm of drift
+            int dx = (int)(tenths / 10.0 * pxmm + 0.5);
+            for (unsigned d = 0; d < 7; d++) {
+                const uint32_t ms[] = {80, 200, 400, 500, 900, 1500, 2200};
+                clear(); ht_gesture_begin(&g, cx, cy, 0, 0);
+                ht_gesture_move(&g, cx + dx, cy);
+                ht_gesture_end(&g, cx + dx, cy, ms[d]);
+                if (g.moved) moved_seen++;
+                int x = cx + dx, y = cy;
+                if (x >= rx && x < rx + rw && y >= ry && y < ry + rh) inside_hits++;
+            }
+        }
+        // Every one of these presses lands inside the control, at every duration...
+        assert(inside_hits == 41 * 7);
+        // ...and most of them are "moved", which is exactly what the discarded rule keyed on.
+        assert(moved_seen > 0 && moved_seen < 41 * 7);
+        // Leaving the control is a cancel, whatever the resolver says about the contact.
+        clear(); ht_gesture_begin(&g, cx, cy, 0, 0);
+        ht_gesture_move(&g, rx - 40, cy);
+        ht_gesture_end(&g, rx - 40, cy, 200);
+        assert(!(rx - 40 >= rx));
+    }
+    puts("gestures: PASS (single release, slow tap, voice guard, holds, wrap + 20,000 drag/cancel "
+         "traces; written-control press survives 4 mm of drift at every duration)");
 }

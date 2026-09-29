@@ -8,6 +8,7 @@ import 'package:harness/terminal/terminal_text.dart';
 import '../core/harness_file_store.dart';
 import '../core/local_key_value_store.dart';
 import '../core/test_run.dart';
+import '../shared/theme/app_theme.dart' as grid;
 import '../shared/theme/app_type.dart';
 import '../widgets/box_chrome.dart';
 import '../widgets/terminal_prompt.dart';
@@ -35,16 +36,16 @@ class KeyboardLesson {
       .map((binding) => boxKeyLabel(describeKeyBinding(binding)))
       .join(' / ');
   String get result => switch (command) {
-    'swarm.new' => '[work]  [new tab]\nFind a harness, or create one',
-    'agent.open' ||
-    'agent.add' => '[agent 1] │ [agent 2]\nBoth agents share this tab.',
+    'swarm.new' => '[work]  [new swarm]\nFind a harness, or create one',
+    'agent.open' || 'agent.add' =>
+      '[harness 1] │ [harness 2]\nBoth harnesses share this swarm.',
     'agent.new' => 'agent    Claude Code\nmachine  dev\nproject  ~/work/payments\ntask     (optional)\nCreate is selected. Up/Down + Enter edits an argument. Permissions and profiles are inside Agent.',
-    'pane.zoom' => '[agent 2 — full workspace]\nPress the same key to restore the other panes.',
+    'pane.zoom' => '[harness 2 — full workspace]\nPress the same key to restore the other panes.',
     'pane.close' =>
-      '[agent 1]\nThe second view closes. Its agent keeps running.',
+      '[harness 1]\nThe second view closes. Its harness keeps running.',
     'swarm.close' =>
-      '[previous tab]\nThe view closes. Its agents keep running.',
-    'navigation.commands' => '>rename\nRename Harness\nRename Tab',
+      '[previous swarm]\nThe view closes. Its harnesses keep running.',
+    'navigation.commands' => '>rename\nRename Harness\nRename Swarm',
     'terminal.find' => 'find > timeout\n1/3 matches in this terminal’s output',
     'picker.complete' => 'project  ~/work/payments\nTab completes the current argument; Enter accepts it.',
     'picker.complete_back' =>
@@ -54,7 +55,7 @@ class KeyboardLesson {
     'creation.project' => 'project on This Mac\nresearch    website    payments\nNew project / Open folder / Clone GitHub repository\nType to filter projects. Up/Down selects; Enter chooses; Escape goes back.',
     'creation.project_new' => 'name     payments processing\nCreate payments-processing\nThis Mac:~/harnesses/payments-processing',
     'creation.project_existing' => 'folder   ~/work/payments\nEnter a folder path, or press Enter to browse on the selected machine.',
-    'creation.project_repository' => 'repo     https://github.com/openai/codex\nChoose the repository, then launch to clone it and start the agent.',
+    'creation.project_repository' => 'repo     https://github.com/openai/codex\nChoose the repository, then launch to clone it and start the harness.',
     'creation.project_machine' => 'machine  Office\nChoose where the project lives. Folders are scoped to that machine.',
     'creation.project_browse' => 'Browse folders\nChoose a folder on the selected machine; cancelling returns to the folder prompt.',
     'creation.project_recent_1' ||
@@ -66,7 +67,7 @@ class KeyboardLesson {
     'creation.project_recent_7' ||
     'creation.project_recent_8' ||
     'creation.project_recent_9' => 'Recent project selected\nThe launch summary now uses this folder on the selected machine.',
-    'creation.task' => 'task     fix the tests\nEnter starts the agent with this first task. Escape keeps the draft.',
+    'creation.task' => 'task     fix the tests\nEnter starts the harness with this first task. Escape keeps the draft.',
     'creation.options' => 'options\nChange permissions or the Codex profile.',
     'picker.more_options' =>
       'more options\nPermissions · Codex profile · repository',
@@ -536,7 +537,7 @@ class _KeyboardPracticeState extends State<KeyboardPractice> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Practice only · your running agents stay untouched',
+              'Practice only · your running harnesses stay untouched',
               style: boxMonoStyle(color: kBoxFaint),
             ),
             const SizedBox(height: 18),
@@ -579,7 +580,7 @@ class _KeyboardPracticeState extends State<KeyboardPractice> {
                             onTap: () => _open(row),
                             child: ColoredBox(
                               color: i == _cursor.clamp(0, rows.length - 1)
-                                  ? Colors.white.withValues(alpha: .09)
+                                  ? boxInk(.09)
                                   : Colors.transparent,
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
@@ -675,9 +676,14 @@ class _KeyboardPracticeState extends State<KeyboardPractice> {
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(14),
-                          color: Colors.black26,
+                          // A recessed well: black sinks a dark field, but
+                          // at 26% it turns a light one into a grey slab.
+                          color: grid.AppTheme.pick(
+                            boxInk(.06),
+                            Colors.black26,
+                          ),
                           child: Text(
-                            _matched ? lesson.result : 'scratch workspace\n\n[agent 1] │ [agent 2]\n\n> ready',
+                            _matched ? lesson.result : 'scratch workspace\n\n[harness 1] │ [harness 2]\n\n> ready',
                             key: const ValueKey('practice-preview'),
                             style: boxMonoStyle(),
                           ),

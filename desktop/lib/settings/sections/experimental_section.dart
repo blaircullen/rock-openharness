@@ -135,7 +135,7 @@ class _SwarmCollaborationSetting extends StatelessWidget {
     return SettingRow(
       title: 'Swarm collaboration',
       detail:
-          'Let agents automatically consult only peers in the same tab. '
+          'Let agents automatically consult only peers in the same swarm. '
           'Off by default.',
       control: Semantics(
         label: 'Swarm collaboration',

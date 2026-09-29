@@ -36,7 +36,7 @@ void main() {
       'close pane',
       if (nativeEntry) 'close pane menu',
       'close tab',
-      'new tab',
+      'new swarm',
     ]) {
       testWidgets(
         '$action owns immediate input before a frame (native=$nativeEntry)',
@@ -106,7 +106,7 @@ void main() {
             }
             await tester.pump(const Duration(milliseconds: 10));
             expect(secondInput, isEmpty, reason: 'The old agent owns no input');
-            if (action == 'new tab') {
+            if (action == 'new swarm') {
               expect(app.panes, isEmpty);
               expect(app.swarms.first.panes, [first, second]);
               expect(app.swarms, hasLength(2));

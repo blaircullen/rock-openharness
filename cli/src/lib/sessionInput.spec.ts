@@ -17,6 +17,18 @@ function session(engine: 'claude' | 'codex' | 'cursor' | 'commandcode' = 'codex'
 describe('SessionInputController', () => {
   afterEach(() => vi.useRealTimers())
 
+  it('retains the submitted swarm through the input queue and records it only at dispatch', async () => {
+    const beforeSubmit = vi.fn(() => vi.fn())
+    const controller = new SessionInputController({ getSession: () => session('cursor'), validateRuntime: async () => true,
+      inject: async () => true, sendKey: async () => true, beforeSubmit, onError: vi.fn() })
+    controller.setTurnOpen('s1', true)
+    controller.submit('s1', 'task from A', undefined, 'swarm-a')
+    expect(beforeSubmit).not.toHaveBeenCalled()
+    controller.onTurnEnded('s1')
+    await vi.waitFor(() => expect(beforeSubmit).toHaveBeenCalledWith('h1', 'task from A', 'swarm-a'))
+    controller.forget('s1')
+  })
+
   it.each(['team_waiting_draft', 'team_waiting_user', 'team_waiting_idle'])('team input preserves the composer on %s', async reason => {
     const inject = vi.fn(async () => true), sendKey = vi.fn(async () => true), onDelivery = vi.fn()
     const controller = new SessionInputController({ getSession: () => session('cursor'), validateRuntime: async () => true,

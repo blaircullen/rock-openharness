@@ -430,12 +430,11 @@ void main() {
       );
     });
 
-    test('the first message after sign-in is counted once', () async {
+    test('a second turn after the first leaves the agent processing', () async {
       final rig = await signedInWith({
         'm': ['a'],
       });
       addTearDown(rig.app.dispose);
-      rig.app.armFirstMessageForTest('sign_in');
 
       await push(rig, 'm', 'turn_started', {'agentId': 'a'});
       await push(rig, 'm', 'turn_ended', {'agentId': 'a'});

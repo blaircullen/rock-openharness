@@ -7344,6 +7344,12 @@ void ui_notif_replace(const cable_notif_t *rows, int count)
     display_unlock();
 }
 
+void ui_notif_read(const char *project_id, const char *read_token)
+{
+    // The legacy renderer does not keep notification identities.
+    (void)project_id; (void)read_token;
+}
+
 void ui_notif_seen(const char *project_id)
 {
     if (!project_id || !project_id[0]) return;

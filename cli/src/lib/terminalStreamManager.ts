@@ -5,6 +5,7 @@ import { ENGINES } from '../engines/types.js'
 import type { RegisteredSession } from './registry.js'
 import { EXTERNAL_PANE_DETAIL, EXTERNAL_TERMINAL_UNAVAILABLE, externalEndpointKey, isExternallyOwned } from './agentOwnership.js'
 import { writeImageToOsClipboard } from './osClipboard.js'
+import { sleptFor } from './sleepAware.js'
 import { writePasteDropFile, writePasteImageFile } from './pasteDropFiles.js'
 import type { TerminalBackendCoordinator } from './terminalBackendCoordinator.js'
 import { terminalPlacementKey, terminalRouteKey } from './terminalRuntime.js'
@@ -78,6 +79,7 @@ export function clientDescriptorFrom(raw: unknown): TerminalClientDescriptor | u
 const PROTOCOL_VERSION = 3
 const HEARTBEAT_TIMEOUT_MS = 30_000
 const SYNC_INTERVAL_MS = 5_000
+const EXPIRY_SWEEP_MS = 5_000
 const OUTPUT_FLUSH_MS = 8
 // The terminal the person is typing into on the loopback desktop gains nothing from the 8ms window:
 // a frame across 127.0.0.1 costs tens of microseconds, and the app already folds every write between
@@ -188,6 +190,7 @@ export interface TerminalStreamManagerDeps {
    * Absent (or a read-only manager): a borrowed row is never opened.
    */
   verifyExternal?: (session: RegisteredSession) => Promise<{ ok: true } | { ok: false; detail: string }>
+  onScopedInput?: (agentId: string, bytes: Uint8Array, tabId: string | undefined, pasted: boolean) => void
 }
 
 function sizeFrom(payload: FramePayload): TerminalStreamSize | null {
@@ -229,10 +232,12 @@ export class TerminalStreamManager {
   private readonly focusByConn = new Map<string, string | null>()
   private readonly now: () => number
   private readonly expiryTimer: ReturnType<typeof setInterval>
+  private lastSweepAt: number
 
   constructor(private readonly deps: TerminalStreamManagerDeps) {
     this.now = deps.now ?? (() => Date.now())
-    this.expiryTimer = setInterval(() => this.expireLeases(), 5_000)
+    this.lastSweepAt = this.now()
+    this.expiryTimer = setInterval(() => this.expireLeases(), EXPIRY_SWEEP_MS)
     this.expiryTimer.unref?.()
   }
 
@@ -353,10 +358,10 @@ export class TerminalStreamManager {
       return
     }
     if (frame.kind === TerminalBinaryKind.paste) {
-      await this.paste(state, frame.bytes)
+      await this.paste(state, frame.bytes, frame.tabId)
       return
     }
-    await this.input(state, frame.seq, frame.bytes)
+    await this.input(state, frame.seq, frame.bytes, frame.tabId)
   }
 
   private capabilities(connId: string, requestId: unknown): void {
@@ -367,6 +372,7 @@ export class TerminalStreamManager {
       available: this.deps.streamingAvailable,
       features: {
         rawInput: !this.deps.readOnly,
+        swarmInput: !this.deps.readOnly,
         resize: !this.deps.readOnly,
         mouse: !this.deps.readOnly,
         keyframe: true,
@@ -628,6 +634,7 @@ export class TerminalStreamManager {
         // True for a watcher too: the client draws output and withholds input, exactly as it does
         // for an observer's stream. See the `takeover: false` branch above.
         readOnly: this.deps.readOnly === true || watching,
+        swarmInput: !this.deps.readOnly,
         ...(heldBy ? { heldBy } : {}),
       })) {
         await this.closeStream(state, 'backend disconnected', false)
@@ -697,7 +704,7 @@ export class TerminalStreamManager {
     else if (state.outputPaused) this.armStallTimer(state)
   }
 
-  private async input(state: ActiveStream, inputSeq: number, bytes: Uint8Array): Promise<void> {
+  private async input(state: ActiveStream, inputSeq: number, bytes: Uint8Array, tabId?: string): Promise<void> {
     if (!Number.isSafeInteger(inputSeq) || inputSeq !== state.lastInputSeq + 1 || bytes.length === 0 || bytes.length > INPUT_MAX_BYTES) {
       // Nothing here reached the pty, and `lastInputSeq` is deliberately left where it was. Say what
       // WOULD have been accepted: a client whose counter has drifted (a frame it dropped on its own
@@ -719,6 +726,7 @@ export class TerminalStreamManager {
     state.lastInputSeq = inputSeq
     state.expiresAt = this.now() + HEARTBEAT_TIMEOUT_MS
     this.tookInput(state)
+    this.deps.onScopedInput?.(state.agentId, bytes, tabId, false)
     // Not awaited. `writeRaw` hands its `send-keys` to the control client's FIFO synchronously, so
     // keystroke order is already fixed by the time it returns its promise — and the seq above is
     // spent, so the next frame cannot race this one. Awaiting the reply held the whole local
@@ -782,7 +790,7 @@ export class TerminalStreamManager {
    * (TERMINAL_*_PASTE_MAX_*_BYTES in terminalBinary.ts) — anything over that never decodes into a
    * frame at all, so there is nothing left to check here.
    */
-  private async paste(state: ActiveStream, bytes: Uint8Array): Promise<void> {
+  private async paste(state: ActiveStream, bytes: Uint8Array, tabId?: string): Promise<void> {
     if (bytes.length === 0) return
     let text: string
     try {
@@ -793,6 +801,7 @@ export class TerminalStreamManager {
     }
     state.expiresAt = this.now() + HEARTBEAT_TIMEOUT_MS
     this.tookInput(state)
+    this.deps.onScopedInput?.(state.agentId, bytes, tabId, true)
     const result = await state.handle.pasteRaw(text)
     if (result.state !== 'succeeded') {
       this.sendError(state.connId, 'TERMINAL_PASTE_FAILED', { streamId: state.streamId, message: result.reason })
@@ -1028,9 +1037,9 @@ export class TerminalStreamManager {
 
   /** Scroll gestures arrive stream-scoped, same as resize — no ordering/seq guard needed since,
    *  unlike input, an out-of-order or dropped scroll frame just means one gesture scrolled a little
-   *  more or less than intended, never a corrupted stream. The pane's live output stream (already
-   *  flowing via `sink.onData`) naturally carries the scrolled copy-mode view back to the client, so
-   *  no explicit keyframe push is needed here the way resize needs one. */
+   *  more or less than intended, never a corrupted stream. PageUp/PageDown are written into the
+   *  pty, so the program's own redraw rides the live output stream (`sink.onData`) back to the
+   *  client; no explicit keyframe push is needed here the way resize needs one. */
   private async scroll(connId: string, payload: FramePayload): Promise<void> {
     const state = this.streamFor(connId, payload)
     if (!state) return
@@ -1197,7 +1206,9 @@ export class TerminalStreamManager {
       reason: 'tmux snapshot did not run',
     }
     try {
-      snapshot = await state.handle.snapshot()
+      snapshot = await state.handle.snapshot(
+        state.engineId === 'grok' ? { tuiOwnsScrollback: true } : undefined,
+      )
     } catch (error) {
       snapshot = { state: 'failed', reason: error instanceof Error ? error.message : 'tmux snapshot failed' }
     }
@@ -1280,6 +1291,15 @@ export class TerminalStreamManager {
 
   private expireLeases(): void {
     const now = this.now()
+    // A sweep that arrives long after its period is the computer waking up, and the time asleep is
+    // nobody's silence: the window slept too, and could not have sent `terminal_alive`. Every lease is
+    // carried over the gap, so the window's first heartbeat after the wake finds its stream still
+    // there. Closing them all here is what put every local terminal on "reconnecting" at each wake.
+    const slept = sleptFor(now - this.lastSweepAt, EXPIRY_SWEEP_MS)
+    this.lastSweepAt = now
+    if (slept > 0) {
+      for (const state of this.streams.values()) state.expiresAt += slept
+    }
     for (const state of [...this.streams.values()]) {
       if (!state.closing && state.expiresAt <= now) void this.closeStream(state, 'heartbeat timeout', true)
       else if (!state.closing && now - state.lastSyncAt >= SYNC_INTERVAL_MS) this.sendSync(state, now)

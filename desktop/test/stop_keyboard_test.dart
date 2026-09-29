@@ -267,7 +267,7 @@ void main() {
     await key(tester, LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(connection.stops, isEmpty);
-    expect(find.textContaining('The agent changed.'), findsOneWidget);
+    expect(find.textContaining('The harness changed.'), findsOneWidget);
     await key(
       tester,
       LogicalKeyboardKey.enter,

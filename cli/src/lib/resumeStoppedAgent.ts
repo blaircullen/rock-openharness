@@ -103,7 +103,7 @@ export async function waitForResumedAgent(saved: RegisteredSession, deps: Resume
     if (row.sessionId !== saved.sessionId || row.engine !== saved.engine) return resumeChanged
     if (row.launch?.state === 'failed') return { ok: false, error: row.launch.error, detail: row.launch.detail }
     if (!pane || pane.dead || pane.engineExit != null) {
-      return { ok: false, error: 'RESUME_FAILED', detail: 'The agent exited before confirming the saved conversation. Its terminal output and conversation have been retained.' }
+      return { ok: false, error: 'RESUME_FAILED', detail: 'The harness exited before confirming the saved conversation. Its terminal output and conversation have been retained.' }
     }
     // ONE proof, for every engine: this row's own engine process, running in this row's own pane,
     // which the checks above have just confirmed is alive. `deps.process()` resolves the engine

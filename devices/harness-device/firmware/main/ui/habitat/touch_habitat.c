@@ -6,8 +6,16 @@
 #include "board_i2c.h"
 #include "driver/i2c_master.h"
 #include "esp_lcd_panel_io.h"
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// The Pro's controller is opened by ui/touch_gt911.c behind touch_ctrl.h — the interface that already
+// existed for this exact split, and the same one the LVGL renderer uses. GT911 is polled rather than
+// interrupt-driven (int_gpio_num = GPIO_NUM_NC there), which this task was already built for: the IRQ
+// below only ever shortened the wait, it was never what produced a sample.
+#include "touch_ctrl.h"
+#else
 #include "esp_lcd_touch_cst816s.h"
 #include "esp_lcd_touch_cst9217.h"
+#endif
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -19,6 +27,7 @@ static esp_lcd_panel_io_handle_t io;
 static TaskHandle_t touch_task_handle;
 static atomic_uint presses, failures, inferred, last_press;
 static atomic_bool held, controller_ready;
+#if !defined(CONFIG_IDF_TARGET_ESP32P4)
 static void touch_irq(esp_lcd_touch_handle_t tp)
 {
     (void)tp;
@@ -28,6 +37,19 @@ static void touch_irq(esp_lcd_touch_handle_t tp)
     if (wake)
         portYIELD_FROM_ISR();
 }
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+static bool open_touch(void)
+{
+    if (!touch_ctrl_open(&io, &controller)) {
+        controller = NULL;
+        io = NULL;
+        return false;
+    }
+    atomic_store(&controller_ready, true);
+    return true;
+}
+#else
 static bool open_touch(void)
 {
     const board_t *b = board();
@@ -57,6 +79,7 @@ static bool open_touch(void)
     atomic_store(&controller_ready, true);
     return true;
 }
+#endif
 static void task(void *arg)
 {
     (void)arg;
@@ -92,6 +115,7 @@ static void task(void *arg)
                 last_x = x;
                 last_y = y;
             }
+#if !defined(CONFIG_IDF_TARGET_ESP32P4)
         } else if (rc == ESP_ERR_INVALID_RESPONSE && board()->touch == TOUCH_CST9217) {
             trusted = false;
             // This controller also returns stale ACKs while idle. With a previously verified
@@ -104,6 +128,7 @@ static void task(void *arg)
             down = prev && now - last_good < 100000;
             if (prev && !down)
                 atomic_fetch_add(&inferred, 1);
+#endif
         } else {
             trusted = false;
             atomic_fetch_add(&failures, 1);

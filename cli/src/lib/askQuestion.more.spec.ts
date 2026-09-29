@@ -374,7 +374,7 @@ describe('AskQuestionController — refusing before anything is typed', () => {
   it('says AGENT_NOT_FOUND for a session that is gone', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const r = rig([DRINK], { deps: { getSession: () => undefined } })
-    expect(await r.controller.answer(drink('Tea'))).toEqual({ ok: false, error: 'AGENT_NOT_FOUND', detail: 'That agent is no longer running.' })
+    expect(await r.controller.answer(drink('Tea'))).toEqual({ ok: false, error: 'AGENT_NOT_FOUND', detail: 'That harness is no longer running.' })
     expect(r.keys).toEqual([])
   })
 

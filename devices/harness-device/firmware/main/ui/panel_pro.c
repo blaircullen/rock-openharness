@@ -17,80 +17,23 @@
 
 #include "board_pins.h"
 #include "display.h"
+#include "pro_panel_bus.h"
 
-#include "driver/gpio.h"
-#include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
-#include "esp_lcd_st7703.h"
-#include "esp_ldo_regulator.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
 static const char *TAG = "panel_pro";
 
-#define BL_TIMER   LEDC_TIMER_0
-#define BL_CHANNEL LEDC_CHANNEL_0
-#define BL_MAX_DUTY ((1 << BSP_LCD_BL_RES_BITS) - 1)
+static esp_lcd_panel_handle_t s_panel;
+static lv_display_t          *s_disp;
 
-static esp_lcd_panel_handle_t   s_panel;
-static esp_lcd_panel_io_handle_t s_io;
-static esp_lcd_dsi_bus_handle_t s_bus;
-static esp_ldo_channel_handle_t s_phy_pwr;
-static lv_display_t            *s_disp;
-
-/*
- * Backlight. An AP3032 boost drives the LED string and its feedback pin is what this PWM moves, so the
- * duty is INVERTED — more duty is dimmer. The invert is done by the LEDC peripheral rather than by
- * arithmetic here, so the number in the register reads the same way the number in the code does.
- *
- * This is real dimming. The dial has no brightness control in hardware and fakes it with a translucent
- * overlay over the whole UI (ui_screens.c), which costs a composited layer on every frame; this board
- * does not need that, and at M2 the overlay should be switched off for it rather than stacked on top.
- */
-static void backlight_init(void)
-{
-    const gpio_config_t en = {
-        .pin_bit_mask = 1ULL << BSP_LCD_BL_EN,
-        /* INPUT_OUTPUT, not OUTPUT: a plain output pin reads back 0 whatever it is driving, which made
-         * the diagnostic line below report BL_EN=0 on a backlight that was on. */
-        .mode = GPIO_MODE_INPUT_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&en);
-    gpio_set_level(BSP_LCD_BL_EN, 1);
-
-    const ledc_timer_config_t timer = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = BSP_LCD_BL_RES_BITS,
-        .timer_num = BL_TIMER,
-        .freq_hz = BSP_LCD_BL_FREQ_HZ,
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    ledc_timer_config(&timer);
-
-    const ledc_channel_config_t ch = {
-        .gpio_num = BSP_LCD_BL_PWM,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = BL_CHANNEL,
-        .timer_sel = BL_TIMER,
-        .duty = 0,
-        .hpoint = 0,
-        .flags.output_invert = true,
-    };
-    ledc_channel_config(&ch);
-}
-
-/* 0..255 to match the dial's DCS register range, so one UI setting drives both boards. */
-void panel_set_brightness(uint8_t level)
-{
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, BL_CHANNEL, (uint32_t)BL_MAX_DUTY * level / 255u);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, BL_CHANNEL);
-}
+/* Brightness and the idle blank both live in pro_panel_bus.c now, because the habitat renderer needs
+ * them and has no panel.h. These three are the panel.h names the rest of the firmware calls. */
+void panel_set_brightness(uint8_t level) { pro_backlight_set(level); }
 
 /* The idle blank. This panel is backlit, so "off" is the backlight rather than the pixels — cutting the
  * DSI stream instead would take a full re-init to come back from, and the dial's wake is instant. */
@@ -98,12 +41,12 @@ static uint8_t s_level_before_blank = 255;
 void panel_power(bool on)
 {
     if (!on) {
-        s_level_before_blank = (uint8_t)(ledc_get_duty(LEDC_LOW_SPEED_MODE, BL_CHANNEL) * 255u / BL_MAX_DUTY);
-        panel_set_brightness(0);
-        gpio_set_level(BSP_LCD_BL_EN, 0);
+        s_level_before_blank = pro_backlight_level();
+        pro_backlight_set(0);
+        pro_backlight_enable(false);
     } else {
-        gpio_set_level(BSP_LCD_BL_EN, 1);
-        panel_set_brightness(s_level_before_blank);
+        pro_backlight_enable(true);
+        pro_backlight_set(s_level_before_blank);
     }
 }
 
@@ -121,15 +64,6 @@ static esp_err_t pro_panel_self_test(bool on)
      * screen looking exactly like a panel that is not there at all. */
     if (err != ESP_OK) ESP_LOGE(TAG, "pattern %s refused: %s", on ? "on" : "off", esp_err_to_name(err));
     return err;
-}
-
-/* Read back what the backlight is actually being driven with, so a brightness bug and a video bug can
- * be told apart from the log instead of by eye. */
-static void pro_panel_backlight_debug(void)
-{
-    ESP_LOGI(TAG, "backlight · BL_EN(GPIO%d)=%d · PWM GPIO%d · duty=%lu/%d · inverted",
-             BSP_LCD_BL_EN, gpio_get_level(BSP_LCD_BL_EN), BSP_LCD_BL_PWM,
-             (unsigned long)ledc_get_duty(LEDC_LOW_SPEED_MODE, BL_CHANNEL), BL_MAX_DUTY);
 }
 
 /*
@@ -163,45 +97,8 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 
 esp_err_t panel_bringup(void)
 {
-
-    backlight_init();   /* enable the boost early; duty stays 0 until there is something to show */
-
-    /* The DSI PHY runs off an internal LDO, and it has to be up before the bus is created. Getting this
-     * wrong does not fail loudly — the bus is created and the panel simply never lights. */
-    const esp_ldo_channel_config_t ldo = {
-        .chan_id = BSP_LCD_DSI_PHY_LDO_CHAN,
-        .voltage_mv = BSP_LCD_DSI_PHY_LDO_MV,
-    };
-    ESP_RETURN_ON_ERROR(esp_ldo_acquire_channel(&ldo, &s_phy_pwr), TAG, "DSI PHY LDO (VO%d) refused",
-                        BSP_LCD_DSI_PHY_LDO_CHAN);
-
-    esp_lcd_dsi_bus_config_t bus = ST7703_PANEL_BUS_DSI_2CH_CONFIG();
-    ESP_RETURN_ON_ERROR(esp_lcd_new_dsi_bus(&bus, &s_bus), TAG, "dsi bus");
-
-    esp_lcd_dbi_io_config_t dbi = ST7703_PANEL_IO_DBI_CONFIG();
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_dbi(s_bus, &dbi, &s_io), TAG, "dbi io");
-
-    esp_lcd_dpi_panel_config_t dpi = ST7703_720_720_PANEL_60HZ_DPI_CONFIG(LCD_COLOR_PIXEL_FORMAT_RGB565);
-    /* ONE framebuffer. LVGL renders into small buffers of its own and each flush copies a band into
-     * this one — the same partial-render shape the dial uses, which is why display.c can end up owning
-     * both boards rather than branching. Handing LVGL the panel's own framebuffers instead would save
-     * the copy, but it needs the buffer-switch protocol and its own tear handling; that is an
-     * optimisation for later, on a panel that is already known to work. */
-    dpi.num_fbs = 1;
-
-    const st7703_vendor_config_t vendor = {
-        .mipi_config = { .dsi_bus = s_bus, .dpi_config = &dpi },
-    };
-    const esp_lcd_panel_dev_config_t dev = {
-        .reset_gpio_num = BSP_LCD_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel = BSP_LCD_BIT_PER_PIXEL,
-        .vendor_config = (void *)&vendor,
-    };
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7703(s_io, &dev, &s_panel), TAG, "st7703");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init");
-    return ESP_OK;
+    pro_backlight_init();   /* enable the boost early; duty stays 0 until there is something to show */
+    return pro_panel_bus_open(&s_panel, NULL);
 }
 
 esp_err_t panel_attach(int draw_lines, lv_display_t **out_display)

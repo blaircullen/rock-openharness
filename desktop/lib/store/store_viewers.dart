@@ -33,7 +33,7 @@ class StoreViewers extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Shared previews and the agents that use them.',
+          'Shared previews and the harnesses that use them.',
           style: grid.AppType.body(color: grid.AppPalette.textSecondary),
         ),
         const SizedBox(height: 24),
@@ -119,7 +119,7 @@ class StoreViewers extends StatelessWidget {
           const SizedBox(height: 4),
           if (uses.isEmpty)
             Text(
-              'No agents reported in this catalog.',
+              'No harnesses reported in this catalog.',
               style: grid.AppType.body(color: grid.AppPalette.textSecondary),
             )
           else

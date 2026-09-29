@@ -171,7 +171,7 @@ void main() {
       await key(tester, LogicalKeyboardKey.keyV, cmd: true);
       expect(reads, 1);
       await mount(tester, app, next);
-      read.complete({'text': 'original agent only'});
+      read.complete({'text': 'original harness only'});
       await tester.pump(const Duration(milliseconds: 20));
       expect(originalFrames, isEmpty);
       expect(nextFrames, isEmpty);

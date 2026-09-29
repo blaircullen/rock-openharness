@@ -70,10 +70,10 @@ void main() {
   testWidgets('with nothing focusable inside, Escape still closes it', (
     tester,
   ) async {
-    await open(tester, (_) => card(const Text('Delete this agent?')));
+    await open(tester, (_) => card(const Text('Delete this harness?')));
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
-    expect(find.text('Delete this agent?'), findsNothing);
+    expect(find.text('Delete this harness?'), findsNothing);
     expect(result.value, isNull);
   });
 

@@ -337,6 +337,7 @@ void ui_notify_task_done(const char *project_id, const char *name, const char *m
 // first time either is used. The tap's half already travels (cable_client_send_open); this is the
 // return leg. No-op when no row names this agent. Safe from the reader task.
 void ui_notif_seen(const char *project_id);
+void ui_notif_read(const char *project_id, const char *read_token);
 // Replace the WHOLE drawer with what the window still has unread, newest first.
 //
 // Sent once per attach, because that is the one moment this dial is known to have nothing: the rows

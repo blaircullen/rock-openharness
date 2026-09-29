@@ -190,13 +190,11 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
     TerminalTheme theme,
   ) {
     final terminal = widget.terminal;
-    final muted = terminal
-        ? terminalContentStyle(color: theme.foreground.withValues(alpha: .54))
-        : _muted;
+    final muted = terminal ? terminalContentStyle(color: theme.muted) : _muted;
     final body = terminal
         ? terminalContentStyle(color: theme.foreground)
         : _body;
-    final warning = terminal ? theme.yellow : const Color(0xffe9bf79);
+    final warning = terminal ? theme.yellow : _waitingInk;
     final gap = terminal ? cell.height : 12.0;
     final key = _externalKey(row)!;
     final tail = app.sessionTails.read(key);
@@ -307,9 +305,7 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
     }
     _scroll.reversed = true;
     final terminal = widget.terminal;
-    final muted = terminal
-        ? terminalContentStyle(color: theme.foreground.withValues(alpha: .54))
-        : _muted;
+    final muted = terminal ? terminalContentStyle(color: theme.muted) : _muted;
     final body = terminal
         ? terminalContentStyle(color: theme.foreground)
         : _body;
@@ -436,17 +432,13 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
                 if (row.detail.isNotEmpty)
                   Text(
                     row.detail,
-                    style: terminalContentStyle(
-                      color: theme.foreground.withValues(alpha: .54),
-                    ),
+                    style: terminalContentStyle(color: theme.muted),
                   ),
                 if (row.shortcut case final shortcut?) ...[
                   SizedBox(height: cell.height),
                   Text(
                     shortcut,
-                    style: terminalContentStyle(
-                      color: theme.foreground.withValues(alpha: .54),
-                    ),
+                    style: terminalContentStyle(color: theme.muted),
                   ),
                 ],
               ],
@@ -495,11 +487,7 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
                             Text(
                               row.detail,
                               style: widget.terminal
-                                  ? terminalContentStyle(
-                                      color: theme.foreground.withValues(
-                                        alpha: .54,
-                                      ),
-                                    )
+                                  ? terminalContentStyle(color: theme.muted)
                                   : _muted,
                             ),
                             // Nothing exists yet behind the create row, so
@@ -510,13 +498,9 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
                                   top: widget.terminal ? cell.height : 24,
                                 ),
                                 child: Text(
-                                  'No recent session text available.',
+                                  'No recent harness text available.',
                                   style: widget.terminal
-                                      ? terminalContentStyle(
-                                          color: theme.foreground.withValues(
-                                            alpha: .54,
-                                          ),
-                                        )
+                                      ? terminalContentStyle(color: theme.muted)
                                       : _muted,
                                 ),
                               ),
@@ -551,7 +535,7 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
             : _single(row, agents.single, padding, cell, theme);
         return Semantics(
           container: true,
-          label: 'Agent preview',
+          label: 'Harness preview',
           // A session's latest turns carry their list's own scrollbar, on the
           // turns alone: one around the whole preview, header included, drew
           // a second thumb beside it.
@@ -564,12 +548,28 @@ class _SwarmSearchPreviewState extends State<SwarmSearchPreview> {
   }
 }
 
-TextStyle get _muted => AppType.monoMeta(height: 1.5, color: Colors.white54);
+TextStyle get _muted => AppType.monoMeta(height: 1.5, color: kBoxFaint);
+// Dark palettes keep the soft ink this preview was tuned in; a light one
+// takes its primary text, since #e1e1e4 vanishes on a light surface.
 TextStyle get _body => AppType.monoLabel(
   fontWeight: FontWeight.w400,
   height: 1.6,
-  color: Color(0xffe1e1e4),
+  color: grid.AppTheme.pick(
+    grid.AppPalette.textPrimary,
+    const Color(0xffe1e1e4),
+  ),
 );
+
+// The non-terminal preview's state colours. The dark ones are pale tints that
+// vanish on a light ground, where the matching status tokens take over.
+Color get _waitingInk =>
+    grid.AppTheme.pick(grid.AppPalette.warn, const Color(0xffe9bf79));
+Color get _workingInk => grid.AppTheme.pick(
+  grid.AppPalette.accentOnSurface,
+  const Color(0xffadc5eb),
+);
+Color get _idleInk =>
+    grid.AppTheme.pick(grid.AppPalette.online, const Color(0xff9abea5));
 
 /// Which part of an agent's preview to draw: all of it, or the header and the
 /// footer that frame a session's latest turns ([SessionTailView]).
@@ -604,9 +604,7 @@ class _AgentPreview extends StatelessWidget {
       grid.AppTheme.palette.value,
       terminalThemeStore.value,
     );
-    final muted = terminal
-        ? terminalContentStyle(color: theme.foreground.withValues(alpha: .54))
-        : _muted;
+    final muted = terminal ? terminalContentStyle(color: theme.muted) : _muted;
     final body = terminal
         ? terminalContentStyle(color: theme.foreground)
         : _body;
@@ -632,14 +630,14 @@ class _AgentPreview extends StatelessWidget {
         : waiting != null
         ? terminal
               ? theme.yellow
-              : const Color(0xffe9bf79)
+              : _waitingInk
         : working
         ? terminal
               ? theme.blue
-              : const Color(0xffadc5eb)
+              : _workingInk
         : terminal
         ? theme.green
-        : const Color(0xff9abea5);
+        : _idleInk;
     final project = machine.projectOf(agent);
     final request =
         working && record?.turnOpen == true && record?.currentRequest != null
@@ -811,7 +809,7 @@ class _AgentPreview extends StatelessWidget {
         ] else if (compact) ...[
           SizedBox(height: terminal ? cell.height : 10),
           Text(
-            _displayText(excerpt ?? 'No recent session text available.'),
+            _displayText(excerpt ?? 'No recent harness text available.'),
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: excerpt == null ? muted : body,
@@ -886,7 +884,7 @@ class _AgentPreview extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Earlier in this session',
+                      'Earlier in this harness',
                       style: terminal
                           ? muted
                           : muted.copyWith(fontWeight: FontWeight.w500),
@@ -913,7 +911,7 @@ class _AgentPreview extends StatelessWidget {
           if (record?.hasContent != true && waiting == null)
             Padding(
               padding: EdgeInsets.only(bottom: terminal ? cell.height : 24),
-              child: Text('No recent session text available.', style: muted),
+              child: Text('No recent harness text available.', style: muted),
             ),
           if (!terminal) const SizedBox(height: 8),
           if (project?.cwd case final cwd?) Text(cwd, style: muted),
@@ -969,9 +967,7 @@ class _Section extends StatelessWidget {
           Text(
             label,
             style: terminal
-                ? terminalContentStyle(
-                    color: theme.foreground.withValues(alpha: .54),
-                  )
+                ? terminalContentStyle(color: theme.muted)
                 : _muted.copyWith(fontWeight: FontWeight.w500),
           ),
           if (!terminal) const SizedBox(height: 7),

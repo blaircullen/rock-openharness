@@ -134,7 +134,8 @@ void main() {
     'New tab',
     'New Tab',
     'New Harness',
-    'New Tab',
+    'New Agent',
+    'Untitled Tab',
   ]) {
     test(
       '$legacy legacy empty tabs restore with a placeholder and follow the first agent',
@@ -156,12 +157,28 @@ void main() {
         final restored = createApp(store: store);
         addTearDown(restored.dispose);
         await restored.restorePaneLayoutForTest();
-        expect(restored.activeSwarm.name, 'New Tab');
+        expect(restored.activeSwarm.name, 'New Swarm');
         await restored.addAgentToSwarm('m', 'a0');
         expect(restored.activeSwarm.name, 'Agent 0');
       },
     );
   }
+
+  test(
+    'explicit names matching an old placeholder survive a restore',
+    () async {
+      final store = MemoryStore();
+      final original = createApp(store: store);
+      original.renameSwarm(original.activeSwarmId, 'New Tab');
+      await original.flushPaneLayout();
+      original.dispose();
+      final restored = createApp(store: store);
+      addTearDown(restored.dispose);
+      await restored.restorePaneLayoutForTest();
+      expect(restored.activeSwarm.name, 'New Tab');
+      expect(restored.activeSwarm.nameIsCustom, isTrue);
+    },
+  );
 
   test(
     'first agent names a swarm and survives closing and reopening',
@@ -306,7 +323,7 @@ void main() {
         for (var i = 0; i < 70; i++) (machineId: 'm', agentId: 'a$i'),
       ]);
       expect(app.panes.length, AppNotifier.maxPanes);
-      expect(app.lastError, contains('Open another tab'));
+      expect(app.lastError, contains('Open another swarm'));
       expect(app.panes.first.agentId, 'a0');
       app.dispose();
     },

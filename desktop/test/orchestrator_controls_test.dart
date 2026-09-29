@@ -579,7 +579,7 @@ void main() {
         find.textContaining('Message not delivered. Cancelled'),
         findsOneWidget,
       );
-      expect(find.text('Queued for the agent'), findsOneWidget);
+      expect(find.text('Queued for the harness'), findsOneWidget);
       expect(find.text('Director is working…'), findsOneWidget);
       expect(
         find.textContaining('The director needs your input'),

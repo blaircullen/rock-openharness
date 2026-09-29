@@ -392,8 +392,26 @@ class LocalCliDiscovery {
           // Asked here and not on every tick because it costs a `harness auth status` process, and
           // the respawn point is already rate-limited by the backoff above — so this runs once per
           // spawn attempt rather than once every [checkInterval].
-          if (stillSignedIn != null && !await stillSignedIn()) {
-            onSignedOut?.call();
+          //
+          // Asked BESIDE the spawn, never before it: the spawn goes ahead whatever the answer, so
+          // waiting for it only delays the one thing that brings the terminals back. It used to be
+          // awaited first, and a check that threw — `auth status` sitting out the refresh lock a
+          // dying daemon left behind, 30s, the app's own timeout for it — skipped the spawn and left
+          // the terminals dark until something else happened to start the daemon (measured
+          // 2026-09-28 18:47: a minute and eight seconds). A slow answer still arrives and is still
+          // told; a failed one is not a sign-out.
+          final signedInCheck = stillSignedIn?.call();
+          if (signedInCheck != null) {
+            unawaited(
+              signedInCheck.then(
+                (signedIn) {
+                  if (!signedIn) onSignedOut?.call();
+                },
+                onError: (Object error) => debugPrint(
+                  'LocalCliDiscovery.startSupervising: auth check failed: $error',
+                ),
+              ),
+            );
           }
           try {
             await _spawnCommand();

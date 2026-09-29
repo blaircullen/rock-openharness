@@ -266,7 +266,7 @@ class Agent {
     return Agent(
       id: j['id'] as String,
       sessionId: _safeLabel(j['sessionId']),
-      name: j['name'] as String? ?? 'agent',
+      name: j['name'] as String? ?? 'harness',
       title: _safeLabel(j['title']),
       updatedAt: _safeTime(j['updatedAt']),
       lastOpenedAt: _safeTime(j['lastOpenedAt']),

@@ -88,8 +88,24 @@ void ht_octopus_portrait(ht_scene_t *s, const ht_tim_face_t *f, uint8_t frame, u
 void ht_octopus_draw(ht_scene_t *s, const ht_character_face_t *f, uint8_t frame, uint16_t ink,
                      ht_character_size_t size, int y)
 {
+#if HT_FACE_PX >= 720
+    /*
+     * TWO RUNGS UP THE LADDER, because the face is 720 and not 466.
+     *
+     * The atlas number is the cell HEIGHT and the advance is half of it, so a 54 x 27 clip in font_N
+     * is 27N square: the dial's largest is font_10 at 270 px, and this face has room for font_16 at
+     * 432. Every other state drops the way the dial's does, just from higher up — a result to font_8,
+     * a brief one to font_10, and the carrying state to font_14, the rung that still leaves a line
+     * for the detail underneath it.
+     *
+     * Order is HT_CHARACTER_FULL, COMPACT, BRIEF, READING, QUICK.
+     */
+    const ht_font_t *fonts[] = {&ht_octopus_font_16, &ht_octopus_font_14, &ht_octopus_font_10,
+                                &ht_octopus_font_8, &ht_octopus_font_8};
+#else
     const ht_font_t *fonts[] = {&ht_octopus_font_10, &ht_octopus_font_8, &ht_octopus_font_6,
                                 &ht_octopus_font_4, &ht_octopus_font_4};
+#endif
     if ((unsigned)size > HT_CHARACTER_QUICK) size = HT_CHARACTER_FULL;
     ht_octopus_portrait(s, f, frame, ink, fonts[size], y);
 }

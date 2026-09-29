@@ -293,7 +293,7 @@ class _ForkAgentPromptState extends State<_ForkAgentPrompt> {
               heightFactor: 1,
               child: Text(
                 '$label >',
-                style: boxMonoStyle(color: Colors.white70),
+                style: boxMonoStyle(color: boxText(.70)),
               ),
             ),
           ),
@@ -385,7 +385,7 @@ class _ForkAgentPromptState extends State<_ForkAgentPrompt> {
                           const SizedBox(height: 8),
                           Text(
                             error,
-                            style: boxMonoStyle(color: Colors.orangeAccent),
+                            style: boxMonoStyle(color: boxErrorText),
                           ),
                         ],
                         if (_busy)

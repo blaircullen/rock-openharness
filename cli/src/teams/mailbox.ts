@@ -34,7 +34,7 @@ export class TeamMailbox {
       requireTeam(id === this.key(record.id), 'CORRUPT_STATE', 'Delivery identity does not match its record.')
       // A recorded write may have reached the engine. Never automatically paste it again.
       if (record.submitted && ['queued', 'submitted', 'delivered'].includes(record.receipt.state)) {
-        record.receipt = { id: record.id, state: 'unknown', reason: 'Daemon restarted after submission. Read the inbox or inspect the agent.', updatedAt: this.now() }
+        record.receipt = { id: record.id, state: 'unknown', reason: 'Daemon restarted after submission. Read the inbox or inspect the harness.', updatedAt: this.now() }
         this.store.write(id, record)
       }
       this.records.set(record.id, record)
@@ -151,7 +151,7 @@ export class TeamMailbox {
       }
       const runtime = this.deps.runtime(record.agentId!)
       if (!runtime?.available) {
-        const reason = runtime?.reason ?? 'Teammate is offline. Waiting for this same session.'
+        const reason = runtime?.reason ?? 'Teammate is offline. Waiting for this same harness.'
         if (record.receipt.reason !== reason) {
           record.receipt = { id: record.id, state: 'queued', reason, updatedAt: this.now() }
           this.save(record)
@@ -162,7 +162,7 @@ export class TeamMailbox {
       record.receipt = { id: record.id, state: 'submitted', updatedAt: this.now() }
       this.save(record)
       try { this.deps.send(record.agentId!, record.text!, record.id) }
-      catch { this.observe({ sessionId: record.agentId!, deliveryId: record.id, state: 'unknown', reason: 'Submission could not be confirmed. Inspect the agent or read its inbox.' }) }
+      catch { this.observe({ sessionId: record.agentId!, deliveryId: record.id, state: 'unknown', reason: 'Submission could not be confirmed. Inspect the harness or read its inbox.' }) }
     }
   }
   stop(): void {

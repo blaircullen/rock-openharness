@@ -3123,6 +3123,8 @@ describe('relay down-frames are default-deny: sealed, or the backend\'s own', ()
     socket.registerLocalClient('local:app', { sendFrame: () => true, sendBinary: () => true })
     await dispatch({ type: 'message', payload: { content: 'hi', agentId: 'a1' } }, 'local:app', 'local')
     expect(onMessage).toHaveBeenCalledWith('a1', 'hi')
+    await dispatch({ type: 'message', payload: { content: 'task in A', agentId: 'a1', tabId: 'swarm-a' } }, 'local:app', 'local')
+    expect(onMessage).toHaveBeenLastCalledWith('a1', 'task in A', undefined, 'swarm-a')
   })
 })
 

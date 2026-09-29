@@ -290,7 +290,7 @@ class _OrchestratorLauncherState extends State<OrchestratorLauncher> {
                       'Use the engines’ automatic approval modes',
                     ),
                     subtitle: const Text(
-                      'Off by default. Otherwise inspect an agent to answer its permission prompts.',
+                      'Off by default. Otherwise inspect a harness to answer its permission prompts.',
                     ),
                   ),
                 ],

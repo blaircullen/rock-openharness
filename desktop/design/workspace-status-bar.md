@@ -1,5 +1,8 @@
 # Workspace status bar
 
+Use the [product terminology](../../docs/terminology.md): a swarm groups harnesses;
+a harness is one running agent session.
+
 A navigation row above the panes and a 37.5 pt status row below them, using compact
 monospace text and measured character cells.
 Follow the [terminal workspace design system](terminal-workspace.md).
@@ -14,9 +17,9 @@ M2 > openharness > branch-name > #439                          GPT-6 Astra · Ma
 
 ![Top navigation and bottom context, rendered with synthetic data](images/workspace-bottom-bar.png)
 
-## Tabs on the left
+## Swarms on the left
 
-Each tab shows its number and a compact name. A user-entered name always wins:
+Each swarm shows its number and a compact name. A user-entered name always wins:
 once renamed, keep it across pane changes, closing/reopening, and saved layout
 restores. Use automatic naming only when `nameIsCustom` is false. Custom-named
 tabs do not vote in the automatic-name comparison. Count independent
@@ -40,7 +43,7 @@ tab, preserving activity marks before truncating names.
 There is no close button or reserved close-button space. Cmd-W closes the active
 tab; preserve remapped shortcuts, native menu access, and middle-click closing.
 Preserve reorder, rename, keyboard focus, and terminal sessions. Cmd-T opens a
-tab. Cmd-O opens the shared picker with `#` for projects; Cmd-P opens it directly
+swarm. Cmd-O opens the shared picker with `#` for projects; Cmd-P opens it directly
 on harnesses. Cmd-Shift-P opens commands (`>`). The projects list has
 no New Project/Open Folder row. Projects with an open pane in any tab come first;
 each group is alphabetical. Pane focus and navigation history do not change that
@@ -63,12 +66,12 @@ label when it is truncated. Keep action hints on symbols and status links.
 
 The new-tab `+` uses a plain-text control: no resting
 box, with bold text on hover or keyboard
-focus. Keep its New Tab tooltip and shortcut hint.
+focus. Keep its New Swarm tooltip and shortcut hint.
 
 ### Harness activity
 
-Use hn's activity states in two existing places: after the tab name
-(`2:web ⠹`), and after the title in a pane header (`[engine] Session name ⠹`).
+Use hn's activity states in two existing places: after the swarm name
+(`2:web ⠹`), and after the title in a pane header (`[engine] Harness name ⠹`).
 Idle has no visible mark. Viewer headers show their owner's state. Shells, unknown agents, and
 utility tabs have no harness activity mark. Keep the existing engine icon.
 The mark replaces the native tab's old orange attention indicator; it adds no
@@ -88,7 +91,7 @@ explain each symbol.
 | `\|\|` | Paused | Muted foreground |
 | `⊘` | Offline | Muted foreground |
 
-A tab shows its most urgent member in the order above, counting a harness and
+A swarm shows its most urgent member in the order above, counting a harness and
 its viewers once. For an individual harness, offline/paused/launch state takes
 precedence; a current question takes precedence over working. A new turn masks
 old results. Seeing a completion clears its unread check, but viewing a failed
@@ -156,7 +159,7 @@ A model update must repaint the label without reopening or retargeting the pane.
 The observed subscription model does not select a Local row in the picker.
 
 Zoom and Stop remain keyboard/menu actions. Cmd-Shift-W closes the focused pane
-view, Cmd-W closes the tab, and Cmd-Enter toggles pane zoom. Closing a view
+view, Cmd-W closes the swarm, and Cmd-Enter toggles pane zoom. Closing a view
 keeps its harness running; Stop Harness remains a separate command with its
 existing confirmation. Preserve explicit user keymap overrides.
 
@@ -266,7 +269,7 @@ time. Git remains the source of branch names for every engine. When several
 branches have equal recent evidence, show the count instead of selecting one.
 
 Details use two plain tabs: **Pull requests** and **Branches**. The heading is
-the session name and shared repository; do not append “Work” or “Recent work.”
+the harness name and shared repository; do not append “Work” or “Recent work.”
 Pull requests is the default, with one row per PR regardless of branch reuse.
 Put the title on the left and the state on the right. Below it, show the PR number,
 head/base branches and GitHub date. Use terminal green for Open, magenta for
@@ -397,7 +400,7 @@ References: [Zsh prompt parameters](https://zsh.sourceforge.io/Doc/Release/Param
 [Powerlevel10k](https://github.com/romkatv/powerlevel10k).
 
 Pane headers keep task identity and the hover-only close action. The top bar
-contains tabs, New Tab, a plain search icon, the bell, and the Harness Store button.
+contains swarms, New Swarm, a plain search icon, the bell, and the Harness Store button.
 Search opens the existing unified picker; Store opens the existing Store tab.
 The Store restores its earlier rounded pill, colorful polymath mark, and quiet
 tinted fill. Its label is `Harness Store`, without brackets. Keep the full name

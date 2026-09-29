@@ -208,8 +208,28 @@ class _FirstCreationApp extends AppNotifier {
 }
 
 class _WorkspaceLinks implements PeerLinkClient {
+  @override
+  Future<CliLinkConnectResult> connectWithCode(
+    String machineId,
+    String code, {
+    required String label,
+    String? displayName,
+    String? expectedFingerprint,
+  }) async => const CliLinkConnectResult(
+    error: 'Code linking is not used by this fixture.',
+  );
+
   final requests = <String>[];
   final replies = <Completer<CliLinkConnectResult>>[];
+
+  @override
+  Future<CliLinkConnectResult> connectWithCode(
+    String machineId,
+    String code, {
+    required String label,
+    String? displayName,
+    String? expectedFingerprint,
+  }) async => throw UnsupportedError('This fixture covers password linking.');
 
   @override
   Future<CliLinkConnectResult> connect(
@@ -1090,7 +1110,7 @@ void main() {
   );
 
   testWidgets(
-    'native JEV navigation returns to the original pane and hands off to New Tab',
+    'native JEV navigation returns to the original pane and hands off to New Swarm',
     (tester) async {
       final app = createApp();
       final input = <TerminalBinaryFrame>[];
@@ -1218,11 +1238,11 @@ void main() {
       await command('Keyboard practice');
       expect(learning.finished, isTrue);
       final filter = find.byKey(const ValueKey('practice-filter'));
-      await tester.enterText(filter, 'New Tab');
+      await tester.enterText(filter, 'New Swarm');
       await tester.pump();
       await key(tester, LogicalKeyboardKey.enter);
       await key(tester, LogicalKeyboardKey.keyT, cmd: true);
-      expect(find.text('[x] New Tab'), findsOneWidget);
+      expect(find.text('[x] New Swarm'), findsOneWidget);
       await key(tester, LogicalKeyboardKey.keyW, cmd: true);
       expect(app.swarms, [original]);
       expect(original.panes, panes);
@@ -1451,7 +1471,7 @@ void main() {
   );
 
   for (final (label, shortcut) in [
-    ('New Tab', LogicalKeyboardKey.keyT),
+    ('New Swarm', LogicalKeyboardKey.keyT),
     ('Open Harness', LogicalKeyboardKey.keyP),
   ]) {
     testWidgets('native created $label gets terminal input without a click', (

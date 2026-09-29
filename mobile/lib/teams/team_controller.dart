@@ -206,7 +206,7 @@ class TeamController extends ChangeNotifier {
   }
 
   Future<String> _consult(String machineId, String agentId, String key) async {
-    if (channelTabId == null) return 'Choose a swarm tab first.';
+    if (channelTabId == null) return 'Choose a swarm first.';
     final attempt = _consultAttempts.putIfAbsent(
       key,
       () => {

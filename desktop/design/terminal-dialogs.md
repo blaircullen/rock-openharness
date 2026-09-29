@@ -1,5 +1,8 @@
 # Terminal dialog design system
 
+Use the [product terminology](../../docs/terminology.md): a swarm groups harnesses;
+a harness is one running agent session.
+
 **Fixed cells. Plain text. One-line selection.**
 
 This is the dialog chapter of the [terminal workspace design system](terminal-workspace.md).
@@ -65,16 +68,16 @@ when using custom row widgets.
   Do not draw a separate prompt character beside these inputs.
 - All Cmd-P results occupy one row: title
   on the left and activity age, when available, on the right. Machine, project,
-  model, API connection, and Store details live in the preview. For sessions,
+  model, API connection, and Store details live in the preview. For harnesses,
   the preview puts the compact
-  Standard context `machine:project  (branch)` directly below the session title,
+  Standard context `machine:project  (branch)` directly below the harness title,
   followed by status and harness type. Omit missing fields and preserve
   important state such as Offline.
 - Boolean controls use `[x]` and `[ ]`; Enter and Space toggle them.
 - Menu actions use concise text, such as `New Harness`, with the same row
   highlight as other choices and no surrounding brackets. Shortcut hints,
   when needed, are text beside the action, resolved from the live keymap.
-- Omit redundant heading rows such as “New Tab” or “New Pane.” Add a label or
+- Omit redundant heading rows such as “New Swarm” or “New Pane.” Add a label or
   explanation only when it helps someone understand a choice or state.
 - Preserve user content, including Unicode. The restriction on decorative
   graphics applies to our controls, not to the text someone supplied.
@@ -93,7 +96,7 @@ creation entries, use consecutive single lines. Details remain searchable and
 available to screen readers. Machine and project previews retain their name
 and harness count even when they contain just one session.
 
-Unavailable sessions keep their place in the list. Dim their names and replace
+Unavailable harnesses keep their place in the list. Dim their names and replace
 the activity age with a short reason such as `Offline`, `Not connected`, or
 `Link required`. They remain selectable for their saved preview, but Enter and
 click cannot open them. Availability updates in place when the machine reconnects.
@@ -133,13 +136,25 @@ muted text: `@ machines`, `# projects`, `: models`,
 Each hint is also a plain-text button: clicking it inserts the prefix into the
 same editor and keeps typing focus there. Selected harnesses open with Enter.
 Machines use Enter to **Manage**: focus moves to their controls without invoking
-one. Models use four sections: **Subscriptions**, **APIs**, **Your local AI
-models**, and **Shared with you**. Headers are plain muted text and never take
-selection. Put **[ Add ]** within APIs. Your local AI models puts downloaded
-models first, followed by models served on the user's machines. Keep the
-undownloaded catalog collapsed behind **[ Get models ]**; Enter expands it in
-place and selects the first catalog row. **[ Hide catalog ]** collapses it.
-Explicit searches also include matching catalog models. Shared rows show only
+one. Models use five sections: **Subscriptions**, **APIs**, **Your models**,
+the downloads, and **Shared with you**. Headers are plain muted text and never
+take selection. Put **[ Add ]** within APIs. Your models puts downloaded models
+first, followed by models served on the user's machines. The downloads are
+headed with the machine they are for and its memory (`Get for this Mac · 64 GB`),
+and a machine with nothing to download has no such heading. They are ordered
+for a coding agent on that machine: the ones the catalog estimates at 15 tok/s
+or more first, then bigger models first, then the catalog's own (popularity)
+order, with one version of each base model before any MTP, QAT or pruned
+variant; safety classifiers are never offered. The list shows the first five;
+the rest stay behind **[ More models (N) ]**, where Enter
+expands them in place and selects the first catalog row, and **[ Show fewer ]**
+collapses them. The catalog never offers another quantization of a model the
+machine already has. Explicit searches also include matching catalog models.
+A model row names its model alone; the quantization is in the preview, and on
+the row only when two versions of one model share a name. Ahead of its last
+word a model of yours lines up two columns, its size and its speed (measured
+while it runs, else the catalog's estimate, `~10 tok/s`); a list too narrow to
+keep the name readable drops them. Shared rows show only
 the model and sharing machine's label, separated by ` · `. An API heads its models:
 `▸`/`▾` before its name says whether they are listed, and the end of its row says
 how many (`378 models`) or `Tools` for one no harness can run on. Its models
@@ -150,7 +165,13 @@ harness on this computer. Filtering
 preserves the groups.
 
 A plain right-aligned **Use** identifies a model the current pane can use;
-**Get** identifies a model that can be downloaded. Other model rows are dimmed,
+**Get** identifies a model that can be downloaded. A model of yours says what
+Enter does unless something is happening to it (**Downloading**, **Starting**),
+and the one the pane is on says **● In use**. Only a live row's word is green —
+running, in use, or under way; an action is plain, a failure a warning. Get on
+a model the pane can run downloads it, starts it and moves the pane onto it in
+one step, with the hint following it (`Downloading 42%…`); closing the picker
+stops the switch, never the download. Other model rows are dimmed,
 remain selectable for inspection, and have no action badge. Enter does nothing
 on these rows; it must never silently become Manage. Show the reason in the
 preview when it helps. Subscription names include the account label; only an
@@ -186,7 +207,7 @@ and pointer movement can also select a row. A pointer cannot change the resource
 while its management controls own keyboard focus. Clearing the root search returns
 to the hints; live inventory updates must not choose a row for the user. Enter
 does nothing until a row is selected. Keep the input and list in place throughout.
-Cmd-P has no New Harness row, including in machine and project session lists.
+Cmd-P has no New Harness row, including in machine and project harness lists.
 Cmd-N opens creation. Resource setup rows use general guidance rather than
 presumed defaults.
 Page Up/Down pages the result list; Shift-Up/Down scrolls the preview by one

@@ -14,6 +14,8 @@ export interface TeamDependencies {
   /** Executable on the member's machine, ending in `team`. Shell-quoted by the host. */
   command(address: Address): string
   runtime(address: Address): Promise<MemberRuntime | null>
+  taskScope?(address: Address): Promise<string | null>
+  questionReplied?(address: Address, teamId: string, questionId: string): Promise<void>
   delivery(address: Address, action: DeliveryAction, delivery: Delivery | { id: string }): Promise<Receipt | null>
   changed?(id: string, revision: number): void
   now?(): number
@@ -96,6 +98,31 @@ export class TeamService {
     requireTeam(this.effectiveState(team) === 'active', 'TEAM_PAUSED', 'Team communication is paused or archived.')
   }
   isChannel(teamId: string): boolean { const team = this.get(teamId); return !!team.channel }
+  /** Discovery and new questions must use the accepted prompt's origin. Replies/status remain
+   * attached to their existing exchange, including after the user moves a pane. */
+  async authorizeTask(teamId: string, actor: Actor, action: string): Promise<void> {
+    const team = this.get(teamId)
+    if (!team.channel || actor.kind === 'owner' || !this.deps.taskScope
+      || !['get', 'members', 'ask', 'inbox'].includes(action)) return
+    const member = this.member(team, actor)!
+    const scope = await this.deps.taskScope(member)
+    requireTeam(scope === teamId, 'CHANNEL_SCOPE',
+      `Use the swarm of the current task. Resolve it with: ${this.deps.command(member)} --machine ${member.machineId} context --agent ${member.agentId}. If its origin is unavailable, continue independently; do not choose another swarm.`)
+  }
+  context(teamId: string, address: Address): Record<string, unknown> {
+    const team = this.get(teamId)
+    this.active(team)
+    const member = team.members.find(m => m.enabled && m.machineId === address.machineId && m.agentId === address.agentId)
+    requireTeam(team.channel && member, 'CHANNEL_SCOPE', 'This harness is no longer a member of the task’s swarm.')
+    return { teamId, tabId: team.channel.tabId, name: team.name, command: memberCommand(team, member, this.deps.command(member)) }
+  }
+  async questionReplied(teamId: string, questionId: string, actor: Actor): Promise<void> {
+    const team = this.get(teamId)
+    if (team.channel && actor.kind === 'member') {
+      const member = this.member(team, actor, undefined, true)!
+      await this.deps.questionReplied?.(member, teamId, questionId)
+    }
+  }
   private project(team: Team): Record<string, unknown> {
     const { creationHash: _creationHash, ...publicTeam } = team
     return { ...publicTeam, members: team.members.map(({ key: _key, ...member }) => member) }
@@ -180,7 +207,7 @@ export class TeamService {
     const team: Team = current ? structuredClone(current) : {
       protocol: TEAM_PROTOCOL, id: teamId, machineId: this.deps.machineId,
       creationHash: creationHash({ channel: input.tabId }), name: input.name,
-      description: 'Agents in this tab collaborate here. Membership follows the tab.',
+      description: 'Agents in this swarm collaborate here. Membership follows its harnesses.',
       state: 'active', revision: 1, createdAt: now, updatedAt: now,
       members: [], exchanges: [], consultations: [],
     }
@@ -230,7 +257,7 @@ export class TeamService {
     this.owner(actor)
     OperationId.parse(operationId)
     const team = this.get(teamId)
-    requireTeam(team.channel, 'CHANNEL_REQUIRED', 'Consult uses the focused agent’s tab channel.')
+    requireTeam(team.channel, 'CHANNEL_REQUIRED', 'Consult uses the focused harness’s tab channel.')
     const prior = team.consultations.find(c => c.id === operationId)
     if (prior) {
       const member = team.members.find(m => m.id === prior.memberId)
@@ -239,8 +266,8 @@ export class TeamService {
     }
     this.active(team)
     const member = team.members.find(m => m.enabled && m.machineId === address.machineId && m.agentId === address.agentId)
-    requireTeam(member, 'NOT_A_MEMBER', 'The focused agent is no longer in this tab.')
-    requireTeam(team.members.some(m => m.enabled && m.id !== member.id), 'NO_PEERS', 'Add another agent to this tab to consult a peer.')
+    requireTeam(member, 'NOT_A_MEMBER', 'The focused harness is no longer in this swarm.')
+    requireTeam(team.members.some(m => m.enabled && m.id !== member.id), 'NO_PEERS', 'Add another harness to this swarm to consult a peer.')
     requireTeam(team.consultations.length < 500, 'CHANNEL_FULL', 'This channel has reached its retained instruction limit.')
     const pending = team.consultations.find(c => c.memberId === member.id && ['pending', 'queued', 'submitted', 'delivered', 'unknown'].includes(c.receipt.state))
     if (pending) return structuredClone(pending)
@@ -253,7 +280,7 @@ export class TeamService {
   }
   private validateMembers(members: z.infer<typeof MemberSpec>[]): void {
     requireTeam(new Set(members.map(m => m.name.toLowerCase())).size === members.length, 'DUPLICATE_NAME', 'Give each teammate a unique name.')
-    requireTeam(new Set(members.map(m => `${m.machineId}/${m.agentId}`)).size === members.length, 'DUPLICATE_MEMBER', 'A session can only appear once in a team.')
+    requireTeam(new Set(members.map(m => `${m.machineId}/${m.agentId}`)).size === members.length, 'DUPLICATE_MEMBER', 'A harness can only appear once in a team.')
   }
   ask(teamId: string, raw: unknown, actor: Actor): Exchange {
     this.expire(teamId)
@@ -346,7 +373,7 @@ export class TeamService {
   }
   memberId(teamId: string, actor: Actor): string {
     const member = this.member(this.get(teamId), actor, undefined, true)
-    requireTeam(member, 'MEMBER_REQUIRED', 'Use the member command provided when this session joined the team.')
+    requireTeam(member, 'MEMBER_REQUIRED', 'Use the member command provided when this harness joined the team.')
     return member.id
   }
   cancel(teamId: string, questionId: string, actor: Actor): Exchange {
@@ -382,11 +409,11 @@ export class TeamService {
     this.owner(actor)
     const input = z.object({ id: OperationId, name: MemberSpec.shape.name, role: MemberSpec.shape.role, enabled: z.boolean() }).parse(raw)
     const team = this.get(teamId)
-    requireTeam(!team.channel, 'TAB_MEMBERSHIP', 'Manage channel members by adding or removing agents in the tab.')
+    requireTeam(!team.channel, 'TAB_MEMBERSHIP', 'Manage channel members by adding or removing harnesses in the swarm.')
     requireTeam(team.state !== 'archived', 'TEAM_ARCHIVED', 'Archived teams are read-only.')
     const member = team.members.find(m => m.id === input.id)
     requireTeam(member, 'MEMBER_NOT_FOUND', 'That teammate is not in this team.')
-    requireTeam(member.enabled || !input.enabled, 'MEMBER_REMOVED', 'Add this session again to create a fresh membership.')
+    requireTeam(member.enabled || !input.enabled, 'MEMBER_REMOVED', 'Add this harness again to create a fresh membership.')
     const removed = member.enabled && !input.enabled
     Object.assign(member, input)
     this.validateMembers(team.members.filter(m => m.enabled))
@@ -406,10 +433,10 @@ export class TeamService {
     this.owner(actor)
     const input = MemberSpec.extend({ id: OperationId }).parse(raw)
     let team = this.get(teamId)
-    requireTeam(!team.channel, 'TAB_MEMBERSHIP', 'Manage channel members by adding or removing agents in the tab.')
+    requireTeam(!team.channel, 'TAB_MEMBERSHIP', 'Manage channel members by adding or removing harnesses in the swarm.')
     const prior = team.members.find(m => m.id === input.id)
     if (prior) {
-      requireTeam(serial(MemberSpec.parse(prior)) === serial(MemberSpec.parse(input)), 'ID_CONFLICT', 'That membership ID already names another session or role.')
+      requireTeam(serial(MemberSpec.parse(prior)) === serial(MemberSpec.parse(input)), 'ID_CONFLICT', 'That membership ID already names another harness or role.')
       return
     }
     requireTeam(team.state !== 'archived', 'TEAM_ARCHIVED', 'Archived teams are read-only.')

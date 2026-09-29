@@ -603,7 +603,8 @@ function locateQuestionPane(capture: string): FoundDialog | null {
     const line = lines[i].trim()
     if (!line) continue
     if (/[←→]/.test(line) || /^[☐☒✔✓]/.test(line) || /^[─━-]{6,}$/.test(line)) break
-    question = line
+    // Hermes's batch panel marks the active question with `▸`; that marker is chrome, not the question.
+    question = line.replace(/^▸\s*/, '')
     break
   }
 
@@ -806,7 +807,7 @@ export class AskQuestionController {
     const terminalTarget = session?.agentId || session?.sessionId
     if (!terminalTarget) {
       console.warn(`[question] no terminal target for ${sessionId.slice(0, 8)} — answer dropped`)
-      return { ok: false, error: 'AGENT_NOT_FOUND', detail: 'That agent is no longer running.' }
+      return { ok: false, error: 'AGENT_NOT_FOUND', detail: 'That harness is no longer running.' }
     }
     // Never keyed into a borrowed pane (agentOwnership.ts). The dial answers here without passing the
     // socket's `question_response` gate, so this controller refuses too.
@@ -817,7 +818,7 @@ export class AskQuestionController {
     }
     if (this.driving.has(terminalTarget)) {
       console.warn(`[question] ${sessionId.slice(0, 8)} answer dropped · already driving this dialog`)
-      return { ok: false, error: 'ANSWER_BUSY', detail: 'Another answer is already being entered for this agent.' }
+      return { ok: false, error: 'ANSWER_BUSY', detail: 'Another answer is already being entered for this harness.' }
     }
     // `forAnswer`: a dialog is the engine waiting for input mid-turn, so the open turn must not block it.
     const release = this.deps.acquireControl?.(terminalTarget, { forAnswer: true })

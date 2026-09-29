@@ -87,7 +87,7 @@ void main() {
 
   test('a tab saved as Untitled Tab restores as New Tab', () {
     expect(Swarm.normalizeName('Untitled Tab'), Swarm.defaultName);
-    expect(Swarm.defaultName, 'New Tab');
+    expect(Swarm.defaultName, 'New Swarm');
   });
 
   test('tab follows its first harness until an explicit rename, including after restore', () async {
@@ -102,7 +102,7 @@ void main() {
       ),
     ];
     await app.addAgentToSwarm('m', 'a0');
-    expect(app.activeSwarm.name, 'New Tab');
+    expect(app.activeSwarm.name, 'New Swarm');
     expect(app.activeSwarm.nameIsCustom, isFalse);
     await sessionTitle(app, 'Review API changes');
     expect(app.activeSwarm.name, 'Review API changes');

@@ -313,7 +313,7 @@ class ForkedFrom {
     final name = raw['name'];
     return ForkedFrom(
       agentId: agentId,
-      name: name is String && name.isNotEmpty ? name : 'an agent',
+      name: name is String && name.isNotEmpty ? name : 'a harness',
     );
   }
 }
@@ -656,7 +656,7 @@ class Agent {
     return Agent(
       id: j['id'] as String,
       sessionId: _safeLabel(j['sessionId']),
-      name: j['name'] as String? ?? 'agent',
+      name: j['name'] as String? ?? 'harness',
       title: _safeLabel(j['title']),
       engine: _safeEngine(j['engine']),
       engineDisplayName: _safeLabel(j['engineDisplayName']),

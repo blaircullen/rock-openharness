@@ -322,11 +322,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(search.selected!.id, id);
     expect(
-      search.rows.where((row) => row.title == 'qwen3.8-27b · Q4_0'),
+      search.rows.where((row) => row.title == 'qwen3.8-27b'),
       hasLength(1),
     );
     expect(find.text('M2'), findsOneWidget);
-    expect(find.text('16.0 GB'), findsOneWidget);
+    expect(find.text('16 GB'), findsOneWidget);
     expect(find.text('17.6 tok/s'), findsOneWidget);
     expect(find.text('42 req / 1d'), findsOneWidget);
     TerminalTextAction button(String action) => tester.widget(

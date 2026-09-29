@@ -90,7 +90,7 @@ class _OrchestratorWorkspaceState extends State<OrchestratorWorkspace> {
       builder: (context) => AlertDialog(
         title: const Text('Stop this project?'),
         content: const Text(
-          'Stops the director and active specialist turns. Files and agent sessions remain available to inspect. Other projects are unaffected.',
+          'Stops the director and active specialist turns. Files and harnesses remain available to inspect. Other projects are unaffected.',
         ),
         actions: [
           TextButton(
@@ -404,7 +404,7 @@ class _OrchestratorWorkspaceState extends State<OrchestratorWorkspace> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Text(
-                'Needs your input: ${question.prompt}\nUse Inspect to answer in the original agent.',
+                'Needs your input: ${question.prompt}\nUse Inspect to answer in the original harness.',
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: grid.AppPalette.warn),
@@ -484,8 +484,8 @@ class _OrchestratorWorkspaceState extends State<OrchestratorWorkspace> {
                           message['delivery'] == 'unknown')
                         Text(
                           message['delivery'] == 'failed'
-                              ? 'Message not delivered. ${message['deliveryReason'] ?? 'Inspect the agent before resending.'}'
-                              : 'Delivery unconfirmed. Inspect the agent before resending.',
+                              ? 'Message not delivered. ${message['deliveryReason'] ?? 'Inspect the harness before resending.'}'
+                              : 'Delivery unconfirmed. Inspect the harness before resending.',
                           style: TextStyle(color: grid.AppPalette.warn),
                         ),
                       if (const [
@@ -494,7 +494,7 @@ class _OrchestratorWorkspaceState extends State<OrchestratorWorkspace> {
                         'queued',
                       ].contains(message['delivery']))
                         Text(
-                          'Queued for the agent',
+                          'Queued for the harness',
                           style: grid.AppType.caption(
                             color: grid.AppPalette.textSecondary,
                           ),

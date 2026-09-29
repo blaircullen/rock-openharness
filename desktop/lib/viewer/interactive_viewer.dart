@@ -116,7 +116,9 @@ class InteractiveViewerSession extends ChangeNotifier {
       if (!_disposed) {
         error = failure.code == 'UNSUPPORTED'
             ? 'Update Harness on this machine to use its viewer in the browser.'
-            : 'The viewer disconnected. Reconnect and try again.';
+            : (failure.detail?.trim().isNotEmpty == true
+                  ? failure.detail!
+                  : 'The viewer disconnected. Reconnect and try again.');
       }
     } catch (_) {
       if (!_disposed) {
@@ -375,6 +377,11 @@ class _InteractiveViewerState extends State<RemoteViewerSurface> {
                 },
                 child: Image.memory(
                   bytes,
+                  // A viewer frame can be smaller than the viewport (the renderer caps its
+                  // resolution). Keep painting and pointer coordinates on the same surface,
+                  // including while the first image codec is still decoding.
+                  width: _size.width,
+                  height: _size.height,
                   fit: BoxFit.fill,
                   gaplessPlayback: true,
                   excludeFromSemantics: true,

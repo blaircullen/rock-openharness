@@ -458,8 +458,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.connections, ['source']);
       expect(resourceScope('@'), findsOneWidget);
+      // Connect hands focus to View, which lists that machine's harnesses.
       await key(tester, LogicalKeyboardKey.enter);
-      expect(resourceScope('@'), findsOneWidget);
+      expect(resourceScope('@'), findsNothing);
+      expect(find.text('Existing work'), findsWidgets);
+      expect(find.text('Work on this computer'), findsNothing);
       expect(app.panes, isEmpty);
       await tester.enterText(resourceField, 'Existing work');
       await tester.pumpAndSettle();
@@ -469,6 +472,8 @@ void main() {
       expect(app.panes.single.agentId, 'existing');
       expect(journey.completed(OnboardingStep.machines), isFalse);
       expect(tester.takeException(), isNull);
+      // Flush the scoped list's session-preview repaint debounce.
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.pumpWidget(const SizedBox());
     },
   );

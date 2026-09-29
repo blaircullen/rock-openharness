@@ -139,7 +139,7 @@ void main() {
       'hn/nfc',
     ]);
     expect(context.branchRows.every((b) => b.checkedOut), isTrue);
-    expect(context.explanation, 'Branches checked out for this session.');
+    expect(context.explanation, 'Branches checked out for this harness.');
   });
   test(
     'GitHub keeps a merged branch in history after its checkout disappears',
@@ -168,7 +168,7 @@ void main() {
       'activityUncertain': true,
     })!;
     expect(saved.branchLabel, 'hn/preview-fix');
-    expect(saved.explanation, 'Branch checked out for this session.');
+    expect(saved.explanation, 'Branch checked out for this harness.');
     expect(saved.displayProject(null)?.branch, 'hn/preview-fix');
     expect(saved.requestIdentity?['cwd'], '/ship-hn');
     expect(saved.pullRequests.single.state, 'Open');

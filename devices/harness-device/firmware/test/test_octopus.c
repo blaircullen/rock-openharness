@@ -28,7 +28,10 @@ static void transition(const ht_scene_t *before, const ht_scene_t *after)
 static bool tick(ht_octopus_motion_t *m, uint32_t now, ht_tim_mood_t mood,
                  bool quiet, bool visible, bool down, unsigned level)
 {
-    bool changed = ht_octopus_motion_tick(m, now, mood, quiet, visible, down, 330, level, now / 100);
+    // 97 px right of the middle of the face, which is where the gaze test wants the finger. Written
+    // against HT_WIDTH rather than as 330 so it means the same thing on a 466 dial and a 720 Pro —
+    // tim.c reads the gaze relative to the centre, and 330 is left of centre on the larger face.
+    bool changed = ht_octopus_motion_tick(m, now, mood, quiet, visible, down, HT_WIDTH / 2 + 97, level, now / 100);
     assert(m->next_ms >= 1 && m->next_ms <= 1000);
     assert(m->frame < HT_OCTOPUS_FRAMES);
     return changed;

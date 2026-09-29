@@ -99,7 +99,14 @@ class KeymapSettings extends StatelessWidget {
           const SizedBox(height: 8),
           SelectableText(
             keymap!.error!,
-            style: grid.AppType.body(color: Colors.orangeAccent),
+            // Orange is error ink on a dark page only: on a light one it is
+            // under 2:1, so light takes the danger red (≥5:1).
+            style: grid.AppType.body(
+              color: grid.AppTheme.pick(
+                grid.AppPalette.dangerFill,
+                Colors.orangeAccent,
+              ),
+            ),
           ),
         ],
         const SizedBox(height: 16),

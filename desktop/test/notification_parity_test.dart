@@ -11,6 +11,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/notify/alert_sounds.dart';
 import 'package:harness/state/app_state.dart';
+import 'package:harness/state/notification_inbox.dart';
 import 'package:harness/ws/ws_conn.dart';
 
 import 'swarm_state_test.dart' show createApp;
@@ -52,7 +53,16 @@ void main() {
   });
   tearDown(() => app.dispose());
 
-  Future<void> completed(String agentId, {bool? subagent}) =>
+  Future<void> readFromDial(
+    String agentId,
+    String token, {
+    String machine = 'm',
+  }) => app.handleEventForTest('m', {
+    'type': 'dial_notification_read',
+    'payload': {'machineId': machine, 'agentId': agentId, 'readToken': token},
+  });
+
+  Future<void> completed(String agentId, {bool? subagent, int turn = 0}) =>
       app.handleEventForTest('m', {
         'type': 'turn_summary',
         'agentId': agentId,
@@ -60,7 +70,7 @@ void main() {
         'payload': <String, dynamic>{
           'summary': 'A real final answer',
           if (subagent != true)
-            'notification': {'id': 'result-$agentId', 'kind': 'done'},
+            'notification': {'id': 'result-$agentId-$turn', 'kind': 'done'},
         },
       });
 
@@ -84,6 +94,49 @@ void main() {
     'agentId': agentId,
     'payload': <String, dynamic>{'requestId': 'req-$agentId'},
   });
+
+  test('device reads clear only their exact occurrence without changing the workspace', () async {
+    await completed('a1');
+    final old = app.agentUnread.readTokenFor('m', 'a1')!;
+    await completed('a1', turn: 1);
+    final current = app.agentUnread.readTokenFor('m', 'a1')!;
+    expect(current, isNot(old));
+    final tab = app.activeSwarmId;
+    final panes = app.activeSwarm.panes.toList();
+    await readFromDial('a1', old);
+    await readFromDial('a1', current, machine: 'wrong');
+    expect(app.agentUnread.count, 1);
+    await readFromDial('a1', current);
+    await readFromDial('a1', current);
+    expect(app.agentUnread.count, 0);
+    expect(app.activeSwarmId, tab);
+    expect(app.activeSwarm.panes, panes);
+  });
+
+  test(
+    'reading a question notification does not answer the pending question',
+    () async {
+      await question('a1');
+      final pending = app.machineStates['m']!.blockedAgents['a1'];
+      expect(pending, isNotNull);
+      final token = app.agentUnread.readTokenFor('m', 'a1')!;
+      await readFromDial('a1', token);
+      expect(app.agentUnread.count, 0);
+      expect(app.machineStates['m']!.blockedAgents['a1'], same(pending));
+      expect(notificationInbox(app), isEmpty);
+      await question('a1');
+      expect(notificationInbox(app), isEmpty);
+      app.machineStates['m']!.blockedAgents.clear(); // Reconnect restores it.
+      await question('a1');
+      expect(app.agentUnread.count, 0);
+      expect(notificationInbox(app), isEmpty);
+      await answered('a1');
+      await question('a1'); // A later occurrence can ask the same words.
+      expect(app.agentUnread.count, 1);
+      expect(notificationInbox(app), hasLength(1));
+      expect(app.agentUnread.readTokenFor('m', 'a1'), isNot(token));
+    },
+  );
 
   group('a sub-agent is not news on either screen', () {
     test('a verified final result is counted', () async {
@@ -270,6 +323,7 @@ void main() {
           },
         });
         expect(wired.agentUnread.count, 1);
+        final token = wired.agentUnread.readTokenFor('m', 'a1');
 
         wired.markAgentSeen('m', 'a1');
         await Future<void>.delayed(Duration.zero);
@@ -278,7 +332,7 @@ void main() {
         expect(
           conn.sent.where((f) => f.type == 'agent_seen').map((f) => f.payload),
           [
-            {'agentId': 'a1'},
+            {'agentId': 'a1', 'readToken': token},
           ],
         );
       },

@@ -77,7 +77,7 @@ void main() {
           ids.add(p['id'] as String);
           return {
             'error': 'NO_PEERS',
-            'detail': 'Add another agent to this tab.',
+            'detail': 'Add another agent to this swarm.',
           };
         },
       );

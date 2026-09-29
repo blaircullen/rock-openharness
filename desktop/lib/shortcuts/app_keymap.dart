@@ -239,7 +239,7 @@ List<ShortcutRow> effectiveShortcutRows(
           ),
     if (defaultDigits)
       const ShortcutRow(
-        label: 'Select tabs 1–9',
+        label: 'Select swarms 1–9',
         chords: [
           [kIsWeb ? 'Alt' : '⌘', '1 – 9'],
         ],

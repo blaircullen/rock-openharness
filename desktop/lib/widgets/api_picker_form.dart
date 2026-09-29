@@ -430,7 +430,7 @@ class ApiPickerFormState extends State<ApiPickerForm> {
     );
     final style = terminalContentStyle(color: theme.foreground);
     final muted = terminalContentStyle(
-      color: theme.foreground.withValues(alpha: .54),
+      color: theme.muted,
     );
     return ListenableBuilder(
       listenable: controller,

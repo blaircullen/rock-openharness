@@ -17,7 +17,7 @@ export interface ChannelDependencies {
 }
 
 /** The saved desk is the membership authority. Focus and window lifetime never
- * participate in routing. One sticky host keeps each tab's durable ledger. */
+ * participate in routing. One sticky host keeps each swarm's durable ledger. */
 export class ChannelDirectory {
   private desk: ChannelDesk | null = null
   private flight: Promise<ChannelDesk> | null = null
@@ -30,6 +30,14 @@ export class ChannelDirectory {
   private disabling = false
   private configuring = false
   constructor(private readonly deps: ChannelDependencies) {}
+
+  async taskContext(agentId: string, teamId: string | null): Promise<Record<string, unknown>> {
+    const desk = await this.refresh(true)
+    requireTeam(teamId, 'CHANNEL_SCOPE_MISSING', 'The current prompt has no verified swarm origin. Continue independently or submit it from the swarm’s message box. Do not infer scope from the visible swarm or an earlier introduction.')
+    const tab = desk.tabs.find(t => channelTeamId(t.id) === teamId)
+    requireTeam(tab, 'CHANNEL_NOT_FOUND', 'The task’s swarm is no longer on your desk.')
+    return this.request({ action: 'channel_context', tabId: tab.id, from: { machineId: this.deps.machineId, agentId } })
+  }
 
   start(): void {
     if (this.timer || this.stopped) return
@@ -80,7 +88,7 @@ export class ChannelDirectory {
 
   async request(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     requireTeam(payload.memberKey === undefined, 'CHANNEL_SCOPE', 'Use your supplied member commands to consult your own channel.')
-    const action = z.enum(['channel_settings', 'channel_configure', 'channel_list', 'channel_get', 'channel_consult']).parse(payload.action)
+    const action = z.enum(['channel_settings', 'channel_configure', 'channel_list', 'channel_get', 'channel_consult', 'channel_context']).parse(payload.action)
     if (action === 'channel_configure') {
       requireTeam(this.deps.writeSettings, 'CHANNELS_UNSUPPORTED', 'Update Harness to configure swarm collaboration.')
       const enabled = z.boolean().parse(payload.enabled)
@@ -105,14 +113,15 @@ export class ChannelDirectory {
     })) }
     const tabId = Id.parse(payload.tabId)
     const tab = desk.tabs.find(t => t.id === tabId)
-    requireTeam(tab, 'CHANNEL_NOT_FOUND', 'This tab is no longer on your desk.')
-    requireTeam(tab.channelHost || tab.panes.length, 'CHANNEL_EMPTY', 'Add an owned agent pane to this tab to start its swarm.')
+    requireTeam(tab, 'CHANNEL_NOT_FOUND', 'This swarm is no longer on your desk.')
+    requireTeam(tab.channelHost || tab.panes.length, 'CHANNEL_EMPTY', 'Add a harness you own to this swarm to enable collaboration.')
     requireTeam(tab.channelHost, 'CHANNELS_UNSUPPORTED', 'Update the Harness backend to enable tab channels.')
     if (tab.channelHost !== this.deps.machineId) {
       requireTeam(!payload.channelForwarded, 'CHANNEL_MOVED', 'Channel routing changed; retry the same request.')
       return this.deps.forward(tab.channelHost, { ...payload, channelForwarded: true })
     }
     const teamId = channelTeamId(tabId)
+    if (action === 'channel_context') return this.deps.service.context(teamId, Address.parse(payload.from))
     if (action === 'channel_consult') return { teamId, machineId: tab.channelHost,
       consultation: this.deps.service.consult(teamId, OperationId.parse(payload.id), Address.parse(payload.from), { kind: 'owner' }) }
     return { team: await this.deps.service.snapshot(teamId, { kind: 'owner' }) }

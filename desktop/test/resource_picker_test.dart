@@ -13,6 +13,8 @@ import 'package:harness/core/dsh_catalog.dart';
 import 'package:harness/auth/cli_link.dart';
 import 'package:harness/core/models.dart';
 import 'package:harness/models/api_connections_controller.dart';
+import 'package:harness/models/model_search_catalog.dart'
+    show ModelSearchSection;
 import 'package:harness/widgets/api_picker_form.dart';
 import 'package:harness/shared/theme/app_theme.dart' as grid;
 import 'package:harness/shared/theme/color_palette.dart';
@@ -421,29 +423,36 @@ void main() {
             matching: find.byType(TextButton),
           ),
         );
-        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.arrowRight);
-        expect(button('picker.resource_rename').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.arrowLeft);
-        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.arrowDown);
-        expect(button('picker.resource_rename').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.arrowUp);
-        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.keyJ, ctrl: true);
-        expect(button('picker.resource_rename').focusNode!.hasFocus, isTrue);
-        await key(tester, LogicalKeyboardKey.keyK, ctrl: true);
         expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
+        await key(tester, LogicalKeyboardKey.keyK, ctrl: true);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
         expect(controller.selected!.id, selectedId);
         expect(controller.managing, isTrue);
         await key(tester, LogicalKeyboardKey.tab);
         expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.tab, shift: true);
-        expect(button('picker.resource_settings').focusNode!.hasFocus, isTrue);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
         await key(tester, LogicalKeyboardKey.escape);
         expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
         expect(controller.selected!.id, selectedId);
         await capture(tester, 'machine-controls');
+        await key(tester, LogicalKeyboardKey.enter);
+        expect(button('picker.resource_view').focusNode!.hasFocus, isTrue);
+        await key(tester, LogicalKeyboardKey.enter);
+        expect(controller.canGoBack, isTrue);
+        expect(controller.title, startsWith('Harnesses · '));
+        expect(controller.managing, isFalse);
+        expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
 
         await tester.enterText(field, ':Qwen3.8-27B');
         await tester.pumpAndSettle();
@@ -756,7 +765,8 @@ void main() {
         for (final heading in [
           'Subscriptions',
           'APIs',
-          'Your local AI models',
+          'Your models',
+          'Get models',
           'Shared with you',
         ]) {
           expect(
@@ -764,27 +774,31 @@ void main() {
             findsOneWidget,
           );
         }
-        final browse = search(tester).rows
-            .indexWhere(search(tester).isModelDownloadsRow);
-        search(tester).move(browse - search(tester).cursor);
-        await tester.pump();
-        await key(tester, LogicalKeyboardKey.enter);
-        expect(search(tester).modelDownloadsVisible, isTrue);
+        // Four catalog models all fit in the list, so nothing is folded behind "More models".
         expect(
-          search(tester)
-              .models!
-              .entries[search(tester).selected!.modelId]!
-              .needsDownload,
-          isTrue,
+          search(tester).rows.where(search(tester).isModelDownloadsRow),
+          isEmpty,
         );
+        final download = search(tester).rows.firstWhere(
+          (row) =>
+              search(tester).models!.entries[row.modelId]?.needsDownload ==
+              true,
+        );
+        expect(
+          search(tester).modelSection(download),
+          ModelSearchSection.catalog,
+        );
+        search(
+          tester,
+        ).move(search(tester).rows.indexOf(download) - search(tester).cursor);
+        await tester.pump();
         expect(search(tester).modelRowAction(search(tester).selected!), 'Get');
         expect(app.actions, isEmpty);
         expect(app.downloads, isEmpty);
         await key(tester, LogicalKeyboardKey.escape);
         await key(tester, LogicalKeyboardKey.keyI, cmd: true);
-        expect(search(tester).modelDownloadsVisible, isFalse);
         final usable = search(tester).rows
-            .firstWhere((row) => row.title == 'qwen3.8-27b · Q4_0');
+            .firstWhere((row) => row.title == 'qwen3.8-27b');
         search(tester)
             .move(search(tester).rows.indexOf(usable) - search(tester).cursor);
         await tester.pump();
@@ -805,7 +819,7 @@ void main() {
         );
         expect(find.text('Enter Use  ·  Tab pane'), findsOneWidget);
         expect(find.text('M2'), findsOneWidget);
-        expect(find.text('15.0 GB'), findsOneWidget);
+        expect(find.text('15 GB'), findsOneWidget);
         await capture(tester, 'remote-model-select');
         final origin = search(tester);
         await key(tester, LogicalKeyboardKey.tab);
@@ -844,7 +858,8 @@ void main() {
         for (final heading in [
           'Subscriptions',
           'APIs',
-          'Your local AI models',
+          'Your models',
+          'Get models',
           'Shared with you',
         ]) {
           expect(
@@ -881,7 +896,7 @@ void main() {
         );
         app.notifyListeners();
         await key(tester, LogicalKeyboardKey.keyI, cmd: true);
-        expect(search(tester).selected!.title, 'qwen3.8-27b · Q4_0');
+        expect(search(tester).selected!.title, 'qwen3.8-27b');
         await tester.enterText(field, ':Anthropic');
         await tester.pumpAndSettle();
         expect(search(tester).canSelectModel(search(tester).selected), isFalse);

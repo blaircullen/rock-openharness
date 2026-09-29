@@ -118,8 +118,7 @@ class DaemonLessons extends ChangeNotifier {
       'UNSUPPORTED' => 'this harnessd does not keep lessons yet.',
       'UNREACHABLE' || 'TIMEOUT' => 'harnessd did not answer.',
       'NOT_FOUND' => 'that lesson is gone.',
-      'NONCE_REQUIRED' || 'PERSON_ONLY' || 'UNVERIFIED' =>
-        'only you approve a lesson: its [y] while it is proposed, or a terminal.',
+      'NONCE_REQUIRED' || 'PERSON_ONLY' || 'UNVERIFIED' => 'only you approve a lesson: its [y] while it is proposed, or a terminal.',
       final String code => code.toLowerCase().replaceAll('_', ' '),
       _ => 'that did not go through.',
     };
@@ -173,7 +172,7 @@ class DaemonLessons extends ChangeNotifier {
     final learned = result.learned, skipped = result.skipped;
     if (learned == null && skipped == null) return;
     _message = learned != null
-        ? 'learned "$learned". every harness session will load it.'
+        ? 'learned "$learned". every harness will load it.'
         : 'skipped "$skipped". it will not come back.';
     _shownId = null;
     _shownText = null;

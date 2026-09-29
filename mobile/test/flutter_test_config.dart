@@ -7,7 +7,7 @@ import 'package:harness_mobile/core/harness_file_store.dart';
 /// Runs before every test file under `test/`.
 ///
 /// ⚠️ **Every default path points into a throwaway home.** The app's stores,
-/// logs, crash log, analytics id and snapshots all resolve under
+/// logs, crash log and snapshots all resolve under
 /// `~/.harness` through [HarnessFileStore.defaultDirectoryPath], and a test
 /// that builds the app without handing each one a fake would otherwise read and
 /// write the developer's real state — sessions and E2EE keys included. See the

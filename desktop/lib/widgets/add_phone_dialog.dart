@@ -556,7 +556,7 @@ class _AddPhoneDialogState extends State<AddPhoneDialog> {
 
   TerminalTheme get _theme =>
       terminalThemeFor(grid.AppTheme.palette.value, terminalThemeStore.value);
-  Color get _faint => _theme.foreground.withValues(alpha: .54);
+  Color get _faint => _theme.muted;
   TextStyle _ink([Color? color]) =>
       terminalContentStyle(color: color ?? _theme.foreground);
 

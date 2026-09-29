@@ -33,7 +33,7 @@ String storeDemoHtml(String video) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src https:; style-src 'unsafe-inline'; script-src 'nonce-harness-recording'">
 <style>html,body{margin:0;width:100%;height:100%;background:#111316;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style>
-</head><body><video id="recording" controls playsinline autoplay preload="none" aria-label="Recorded harness session"><source src="$source" type="video/mp4"></video>
+</head><body><video id="recording" controls playsinline autoplay preload="none" aria-label="Recorded harness run"><source src="$source" type="video/mp4"></video>
 <script nonce="harness-recording">document.querySelector('video').addEventListener('error',()=>DemoStatus.postMessage('error'));document.querySelector('source').addEventListener('error',()=>DemoStatus.postMessage('error'));</script>
 </body></html>''';
 }
@@ -191,7 +191,7 @@ class _StoreDemoDialogState extends State<StoreDemoDialog>
                 children: [
                   Expanded(
                     child: Text(
-                      '${widget.name} · Recorded session',
+                      '${widget.name} · Recorded run',
                       style: grid.AppType.heading(),
                     ),
                   ),

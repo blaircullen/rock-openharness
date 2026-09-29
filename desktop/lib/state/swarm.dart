@@ -40,10 +40,11 @@ class Swarm {
   String? orchestratorId, orchestratorMachineId;
   static const storeName = 'Harness Store';
 
-  static const defaultName = 'New Tab';
+  static const defaultName = 'New Swarm';
   // 'New Harness' was the default until 2026-09-15, 'New Agent' for a day
   // after, and 'Untitled Tab' until 2026-09-24; a layout saved then still
-  // carries one, and it must read as the same fresh tab.
+  // carries one, and it must read as the same fresh swarm. Explicit custom
+  // names bypass this normalization in the constructor.
   static String normalizeName(String name) =>
       const {
             'New swarm',

@@ -40,7 +40,7 @@ void main() {
     expect(
       app.activeSwarmId,
       second.id,
-      reason: 'The active swarm also contains this agent',
+      reason: 'The active swarm also contains this harness',
     );
     expect(app.focusedPane, same(pane));
     expect(first.panes, [pane]);

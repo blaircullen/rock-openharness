@@ -137,7 +137,13 @@ class _Banner extends StatelessWidget {
                 splashRadius: 14,
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Dismiss',
-                onPressed: () => notifier.agentAlerts.dismiss(alert),
+                onPressed: () {
+                  notifier.readAgentNotification(
+                    alert.machineId,
+                    alert.agentId,
+                  );
+                  notifier.agentAlerts.dismiss(alert);
+                },
               ),
             ],
           ),

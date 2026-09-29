@@ -617,7 +617,7 @@ void main() {
         'Retrying a checkout now reuses the original payment and receipt.',
       );
       expect(explanation, findsOneWidget);
-      expect(find.text('Earlier in this session'), findsOneWidget);
+      expect(find.text('Earlier in this harness'), findsOneWidget);
       final preview = tester.getRect(
         find.byKey(const ValueKey('swarm-search-preview')),
       );

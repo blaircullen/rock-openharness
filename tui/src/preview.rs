@@ -46,6 +46,11 @@ fn harness(app: &App, machine_id: &str, agent_id: &str) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(vec![Span::styled(word.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD)), dim(format!("  {}", ago(a.state_since(state))))]),
     ];
+    if !a.viewer_url.is_empty() || !a.viewer_name.is_empty() || !a.viewer_error.is_empty() {
+        let label = if a.viewer_name.is_empty() { "Viewer" } else { &a.viewer_name };
+        let state = if !a.viewer_error.is_empty() { a.viewer_error.as_str() } else if a.viewer_url.is_empty() { "starting" } else { "ready" };
+        out.push(dim(format!("{label}: {state} · :view opens · :view -c copies link")).into());
+    }
     // Its latest turns, when its session's index has them: as its terminal shows them, the newest
     // at the bottom (where the preview starts), what it asks you below them.
     if let Some(tail) = app.tails.get(&a.session_id) {

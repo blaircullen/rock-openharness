@@ -87,8 +87,8 @@ class _DebugSectionState extends State<DebugSection> {
     return SectionScaffold(
       title: 'Debug',
       subtitle: kIsWeb
-          ? 'Browser logs for this session. Credentials are redacted.'
-          : 'Everything this app logged this session, and the dial\'s own log '
+          ? 'Browser logs for this harness. Credentials are redacted.'
+          : 'Everything this app logged this harness, and the dial\'s own log '
                 'as the daemon writes it — the same lines '
                 '${DailyLogFile.defaultDirectory.path} keeps for a fortnight (the '
                 'dial\'s for a week). Credentials are stripped before anything is '

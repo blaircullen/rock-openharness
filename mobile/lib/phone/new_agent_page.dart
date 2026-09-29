@@ -619,18 +619,30 @@ class _NewAgentPageState extends State<NewAgentPage> {
     // for turning the rows above into what the machine is asked to do. A folder
     // that is not a repository, or one this form never read, falls through to
     // the plain path — and `New project` / `Git…` keep the request they made.
-    final request =
-        project ??
-        (folder == null || _repository == null
-            ? null
-            : gitFolderRequest(
-                folder,
-                _repository!,
-                worktree: _worktree,
-                branchRef: _branchRef,
-                branchName: _branchName,
-                placeholder: _placeholder ?? 'new-branch',
-              ));
+    // A New folder is named after the first task when there is one to send — the phone has no name
+    // field, and five `codex-2026-…` folders told nobody which was which (openharness#94). The agent
+    // takes the same words until its engine titles the session.
+    final task = engine == 'terminal' || !takesFirstTask(engine)
+        ? ''
+        : _task.text;
+    final namedByTask =
+        project != null &&
+        project.repository == null &&
+        project.gitSource == null &&
+        taskProjectSlug(task) != null;
+    final request = namedByTask
+        ? ProjectFolderRequest.forTask(task)
+        : project ??
+              (folder == null || _repository == null
+                  ? null
+                  : gitFolderRequest(
+                      folder,
+                      _repository!,
+                      worktree: _worktree,
+                      branchRef: _branchRef,
+                      branchName: _branchName,
+                      placeholder: _placeholder ?? 'new-branch',
+                    ));
     final error = await widget.notifier.createAgent(
       _machineId,
       engine: engine,
@@ -647,6 +659,7 @@ class _NewAgentPageState extends State<NewAgentPage> {
       model: _model,
       attempt: creation,
       prompt: _engine != null && takesFirstTask(_engine!) ? _task.text : null,
+      name: namedByTask ? taskProjectTitle(task) : null,
     );
     if (!mounted) return;
     if (error == null) {

@@ -74,8 +74,8 @@ class _HarnessJoinGuideScreenState extends State<HarnessJoinGuideScreen> {
               const SizedBox(height: 14),
               Text(
                 isLocal
-                    ? 'The Harness daemon on this machine isn\'t running. Start it — it reuses the SSO session already saved here. The selected agent will attach automatically when it comes online.'
-                    : 'The Harness CLI on ${widget.machineState.machine.displayName} appears to be offline. Start it there, then this agent will attach automatically when it comes back online.',
+                    ? 'The Harness daemon on this machine isn\'t running. Start it — it reuses the SSO session already saved here. The selected harness will attach automatically when it comes online.'
+                    : 'The Harness CLI on ${widget.machineState.machine.displayName} appears to be offline. Start it there, then this harness will attach automatically when it comes back online.',
                 style: TextStyle(color: AppColors.textSoft, height: 1.45),
               ),
               const SizedBox(height: 18),

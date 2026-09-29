@@ -226,7 +226,7 @@ class _RestartAgentPromptState extends State<_RestartAgentPrompt> {
                             _terminal
                                 ? 'Starts a fresh shell in the same pane.'
                                 : 'Restarts the harness in the same pane and tries to resume its conversation.',
-                            style: boxMonoStyle(color: Colors.white70),
+                            style: boxMonoStyle(color: boxText(.70)),
                           ),
                           if (_busy) ...[
                             const SizedBox(height: 8),
@@ -239,14 +239,14 @@ class _RestartAgentPromptState extends State<_RestartAgentPrompt> {
                             const SizedBox(height: 12),
                             Text(
                               error,
-                              style: boxMonoStyle(color: Colors.orangeAccent),
+                              style: boxMonoStyle(color: boxErrorText),
                             ),
                           ],
                           if (_fresh) ...[
                             const SizedBox(height: 12),
                             Text(
-                              'Started a new conversation. The previous session could not be resumed.',
-                              style: boxMonoStyle(color: Colors.orangeAccent),
+                              'Started a new conversation. The previous conversation could not be resumed.',
+                              style: boxMonoStyle(color: boxErrorText),
                             ),
                           ],
                         ],

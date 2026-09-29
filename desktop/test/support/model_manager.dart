@@ -217,7 +217,11 @@ class ModelManagerTestApp extends AppNotifier {
   }
 
   @override
-  Future<String?> installDsh(String machineId, String harness) async {
+  Future<String?> installDsh(
+    String machineId,
+    String harness, {
+    bool trustUnverified = false,
+  }) async {
     installs++;
     if (installError != null) return installError;
     installed = true;

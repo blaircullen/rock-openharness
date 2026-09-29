@@ -517,7 +517,7 @@ class _ProvidersHeading extends StatelessWidget {
         if (hasFigures)
           Text(
             '${overview.sessionCount} '
-            '${overview.sessionCount == 1 ? 'session' : 'sessions'}',
+            '${overview.sessionCount == 1 ? 'conversation' : 'conversations'}',
             style: AppType.caption(color: AppPalette.textFaint),
           ),
       ],

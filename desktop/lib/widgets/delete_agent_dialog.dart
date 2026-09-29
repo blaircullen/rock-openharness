@@ -177,11 +177,11 @@ class _StopAgentPromptState extends State<_StopAgentPrompt> {
                         widget.terminal
                             ? 'End this shell and anything running in it? Files are kept.'
                             : 'Stop this harness? Project files and saved conversation history are kept.',
-                        style: boxMonoStyle(color: Colors.white70),
+                        style: boxMonoStyle(color: boxText(.70)),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Its panes close across tabs. Close Pane keeps it running.',
+                        'Its panes close across swarms. Close Pane keeps it running.',
                         style: boxMonoStyle(color: kBoxFaint),
                       ),
                       if (_stopping) ...[

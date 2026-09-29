@@ -804,7 +804,7 @@ private extension SwarmTabStrip {
     }
     try checkTitlebar(shareButton.accessibilityLabel() == "Share Website launch" &&
       shareButton.toolTip == "Share Website launch · ⇧⌘S",
-      "Share identifies the selected agent and its live shortcut")
+      "Share identifies the selected harness and its live shortcut")
     let pixel = shareButton.renderedBitmap().colorAt(x: 1, y: 1)!.usingColorSpace(.sRGB)!
     try checkTitlebar(abs(pixel.blueComponent - 234.0 / 255.0) < 0.02,
       "The primary Share action paints the color supplied by Flutter")
@@ -1057,7 +1057,7 @@ private extension SwarmTabStrip {
     try checkTitlebar(contextButton.nextBackground == nil, "A missing PR clears the joined background")
     try checkTitlebar(contextButton.fieldButtons.isEmpty, "Leaving a context clears its former link controls")
     try tabs[0].checkDoubleClickIsolation()
-    try checkTitlebar(tabs.count == 24 && newButton.isEnabled, "All overflow tabs and New Tab remain available")
+    try checkTitlebar(tabs.count == 24 && newButton.isEnabled, "All overflow tabs and New Swarm remain available")
     try checkTitlebar(scroll.frame.maxX <= newButton.frame.minX &&
       newButton.frame.maxX < searchButton.frame.minX, "Tabs precede the search, bell and Store controls")
     try checkTitlebar(tabs[0].frame.width < 120 && tabs[0].displayLabel == "1:code",
@@ -1070,7 +1070,7 @@ private extension SwarmTabStrip {
         "Management controls are plain terminal text without a resting button well")
       try checkTitlebar(control.frame.height >= 28 && control.frame.width > workspaceBarTextWidth(symbol, font: barFont),
         "The new-tab control keeps the shared click height and padding around its text")
-      try checkTitlebar(control.accessibilityLabel() == "New Tab" && control.toolTip?.contains("New Tab") == true,
+      try checkTitlebar(control.accessibilityLabel() == "New Swarm" && control.toolTip?.contains("New Swarm") == true,
         "Every symbol explains its action through a tooltip and accessible name")
       let resting = control.renderedPixels()
       let event = NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [],
@@ -1124,7 +1124,7 @@ private extension SwarmTabStrip {
     try checkTitlebar(tabs[0] === original && original.displayLabel == "1:blender",
       "Type changes update the existing tab without renaming its saved workspace")
     try original.checkAccessibility(expectedName: "Custom name", active: true)
-    try checkTitlebar(newButton.toolTip == "New Tab ⌘T", "New Tab retains its keyboard hint")
+    try checkTitlebar(newButton.toolTip == "New Swarm ⌘T", "New Swarm retains its keyboard hint")
     events.removeAll()
     contextButton.performClick(nil)
     newButton.performClick(nil)
@@ -1312,7 +1312,7 @@ private extension SwarmTabStrip {
       try checkTitlebar(moves.isEmpty, "Rejected drag emits no reorder")
     }
     info.draggingLocation = convert(NSPoint(x: newButton.frame.midX, y: 20), to: nil)
-    try rejected("New Tab is not a tab drop target")
+    try rejected("New Swarm is not a tab drop target")
     info.draggingLocation = document.convert(NSPoint(x: tabs[0].frame.midX, y: 20), to: nil)
     info.draggingSource = SwarmTabButton(id: "drag-3")
     try rejected("A foreign tab with a matching ID cannot reorder this strip")
@@ -1435,10 +1435,10 @@ private extension SwarmTitlebar {
       "The menu yields the remapped search shortcut to Flutter")
     try checkTitlebar(!main.performKeyEquivalent(with: open), "Menu equivalents defer before input dispatch")
     setKeymap(defaults)
-    try checkTitlebar(strip.newButton.toolTip == "New Tab ⌘T", "Keymap reload restores the current New Tab hint")
-    try checkTitlebar(strip.newButton.accessibilityLabel() == "New Tab", "The plus announces New Tab")
+    try checkTitlebar(strip.newButton.toolTip == "New Swarm ⌘T", "Keymap reload restores the current New Swarm hint")
+    try checkTitlebar(strip.newButton.accessibilityLabel() == "New Swarm", "The plus announces New Swarm")
     try checkTitlebar(main.defersToInput(event("n", 45, .command)) && main.defersToInput(event("t", 17, .command)),
-      "Command-N and Command-T reach creation and New Tab")
+      "Command-N and Command-T reach creation and New Swarm")
     try checkTitlebar(main.defersToInput(event("p", 35, .command)), "Command-P reaches Harnesses")
     try checkTitlebar(main.defersToInput(event("p", 35, [.command, .shift])), "Command-Shift-P reaches commands")
     try checkTitlebar(main.defersToInput(event("o", 31, .command)), "Command-O reaches the project picker")
@@ -1633,19 +1633,19 @@ private extension SwarmTitlebar {
     }
     try checkTitlebar(agent.items.filter { !$0.isSeparatorItem }.allSatisfy { $0.image != nil && $0.toolTip == nil },
       "Every File action has a native icon and no hover hint")
-    try checkTitlebar(agent.items.contains { $0.title == "Rename Tab" && $0.representedObject as? String == "renameActive" }, "Rename Tab preserves its command")
+    try checkTitlebar(agent.items.contains { $0.title == "Rename Swarm" && $0.representedObject as? String == "renameActive" }, "Rename Swarm preserves its command")
     let movePane = agent.items.first(where: { $0.representedObject as? String == "movePaneToTab" })!
-    try checkTitlebar(movePane.title == "Move Pane to Tab" && movePane.keyEquivalent == "m" && movePane.keyEquivalentModifierMask == [.command, .shift],
-      "Move Pane to Tab advertises Command-Shift-M")
+    try checkTitlebar(movePane.title == "Move Pane to Swarm" && movePane.keyEquivalent == "m" && movePane.keyEquivalentModifierMask == [.command, .shift],
+      "Move Pane to Swarm advertises Command-Shift-M")
     actionsEnabled = true
     canFind = false
-    try checkTitlebar(!validateMenuItem(movePane), "Move Pane to Tab needs a focused pane")
+    try checkTitlebar(!validateMenuItem(movePane), "Move Pane to Swarm needs a focused pane")
     canFind = true
-    try checkTitlebar(validateMenuItem(movePane), "Move Pane to Tab is available with a focused pane")
-    try checkTitlebar(agent.items.contains { $0.title == "Close Tab" && $0.representedObject as? String == "closeActive" }, "Close Tab preserves its command")
+    try checkTitlebar(validateMenuItem(movePane), "Move Pane to Swarm is available with a focused pane")
+    try checkTitlebar(agent.items.contains { $0.title == "Close Swarm" && $0.representedObject as? String == "closeActive" }, "Close Swarm preserves its command")
     let closeTabShortcut = agent.items.first { $0.representedObject as? String == "closeActive" }!
     let closePaneShortcut = agent.items.first { $0.representedObject as? String == "closePane" }!
-    try checkTitlebar(closeTabShortcut.keyEquivalent == "w" && closeTabShortcut.keyEquivalentModifierMask == [.command], "Close Tab defaults to Command-W")
+    try checkTitlebar(closeTabShortcut.keyEquivalent == "w" && closeTabShortcut.keyEquivalentModifierMask == [.command], "Close Swarm defaults to Command-W")
     try checkTitlebar(closePaneShortcut.keyEquivalent == "w" && closePaneShortcut.keyEquivalentModifierMask == [.command, .shift], "Close Pane defaults to Command-Shift-W")
     let commands = edit.submenu!.items.first(where: { $0.representedObject as? String == "commands" })!
     try checkTitlebar(commands.keyEquivalent == "p" && commands.keyEquivalentModifierMask == [.command, .shift], "Command search keeps its native menu owner")
@@ -1653,7 +1653,7 @@ private extension SwarmTitlebar {
     try checkTitlebar(harnesses.keyEquivalent == "p" && harnesses.keyEquivalentModifierMask == [.command],
       "Command-P keeps harness search; commands use Command-Shift-P")
     try checkTitlebar(edit.submenu!.items.allSatisfy { $0.representedObject as? String != "jump" }, "Edit has no Navigate action")
-    try checkTitlebar(agent.items.contains { $0.title == "New Tab" && $0.keyEquivalent == "t" && $0.representedObject as? String == "new" }, "New Tab opens the chooser with Command-T")
+    try checkTitlebar(agent.items.contains { $0.title == "New Swarm" && $0.keyEquivalent == "t" && $0.representedObject as? String == "new" }, "New Swarm opens the chooser with Command-T")
     let reopen = historyMenu.items.first(where: { $0.representedObject as? String == "reopen" })!
     actionsEnabled = true
     canReopen = false
@@ -1666,7 +1666,7 @@ private extension SwarmTitlebar {
     canClosePane = true
     try checkTitlebar(validateMenuItem(closePane), "Remove Agent is enabled for a focused pane")
     let create = agent.items.first(where: { $0.representedObject as? String == "new" })!
-    try checkTitlebar(validateMenuItem(create), "Native New Tab remains available without the retired tab capacity")
+    try checkTitlebar(validateMenuItem(create), "Native New Swarm remains available without the retired tab capacity")
     let machineRows: [[String: Any]] = [
       ["id": "office", "name": "iMac – Office", "status": "Online", "presence": "Online", "local": true, "agentCount": 2,
        "agents": [["id": "one", "title": "App work", "engine": "codex", "canOpen": true],

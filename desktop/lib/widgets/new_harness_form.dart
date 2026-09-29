@@ -205,7 +205,7 @@ class _NewHarnessFormState extends State<NewHarnessForm> {
   String _label(_Row row) => switch (row) {
     _Row.advanced => 'Options',
     _Row.project => 'Project',
-    _Row.agent => 'Agent',
+    _Row.agent => box.harnessId == null ? 'Agent' : 'Harness',
     _Row.model => 'Model',
     _Row.branch => 'Branch',
     _Row.worktree => 'Worktree',
@@ -242,9 +242,14 @@ class _NewHarnessFormState extends State<NewHarnessForm> {
   // Names in existing lists, never a shell command, folder path or repository
   // URL. Speaking filters; choosing and creating remain distinct gestures.
   static const _voiceSearchFields = {
-    NewHarnessField.harness, NewHarnessField.agent, NewHarnessField.projectMenu,
-    NewHarnessField.machine, NewHarnessField.model, NewHarnessField.branch,
-    NewHarnessField.profile, NewHarnessField.mode,
+    NewHarnessField.harness,
+    NewHarnessField.agent,
+    NewHarnessField.projectMenu,
+    NewHarnessField.machine,
+    NewHarnessField.model,
+    NewHarnessField.branch,
+    NewHarnessField.profile,
+    NewHarnessField.mode,
   };
 
   Map<String, dynamic> _deviceSnapshot() {
@@ -273,8 +278,12 @@ class _NewHarnessFormState extends State<NewHarnessForm> {
       'position': index < 0 ? 0 : index + 1,
       'total': count,
       'busy': box.busy || box.linkingProfile,
-      'canQuery': !box.locked && !_isComposing() && _fieldOf(_row) != null &&
-          blocked == null && _voiceSearchFields.contains(box.field),
+      'canQuery':
+          !box.locked &&
+          !_isComposing() &&
+          _fieldOf(_row) != null &&
+          blocked == null &&
+          _voiceSearchFields.contains(box.field),
       'query': box.query,
       'enabled':
           !box.busy &&
@@ -336,11 +345,16 @@ class _NewHarnessFormState extends State<NewHarnessForm> {
       if (!box.locked) _picking ? _stepMatch(delta) : _moveRow(delta);
     } else if (op == 'activate') {
       if (_deviceSnapshot()['enabled'] == true) _confirm();
-    } else if (op == 'query' && _deviceSnapshot()['canQuery'] == true && text != null) {
+    } else if (op == 'query' &&
+        _deviceSnapshot()['canQuery'] == true &&
+        text != null) {
       // A recognizer often adds a final period to a spoken name. Preserve the
       // name, Unicode and internal punctuation; never interpret it as a command.
-      final query = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim()
-          .replaceFirst(RegExp(r'[.!?。！？]+$'), '').trim();
+      final query = text
+          .replaceAll(RegExp(r'[\r\n]+'), ' ')
+          .trim()
+          .replaceFirst(RegExp(r'[.!?。！？]+$'), '')
+          .trim();
       if (query.isNotEmpty) _onTyped(query);
     }
     if (mounted) {

@@ -399,7 +399,7 @@ class _ModelsPanelState extends State<ModelsPanel> with SectionWakes {
                             child: Text(
                               _selectedTab == ModelsTab.apis || _editingApi
                                   ? 'Available to harness tools on ${controller.apis.hostLabel}.'
-                                  : 'Select models in a session’s model picker.',
+                                  : 'Select models in a harness’s model picker.',
                               style: AppType.monoMeta(
                                 color: AppPalette.textSecondary,
                               ),

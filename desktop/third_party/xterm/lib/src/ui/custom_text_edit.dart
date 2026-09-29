@@ -389,6 +389,18 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
     if (hasTextMutation || wasComposing || value.text != _terminalText) {
       _syncTerminalText(value.text);
     }
+    _restoreDeletePadding();
+  }
+
+  /// Under [CustomTextEdit.deleteDetection] the buffer keeps a pad in front of
+  /// what was typed, so a Backspace always has something to delete and is
+  /// seen. Once deletes eat into the pad it goes back: a phone's keyboard sends
+  /// no Backspace key, so a Backspace on an empty buffer changes nothing and
+  /// never reaches the terminal (a pasted `[Image #1]` could not be removed).
+  void _restoreDeletePadding() {
+    if (!widget.deleteDetection) return;
+    if (_currentEditingState.text.startsWith(_initEditingState.text)) return;
+    setEditingState(_initEditingState.copyWith());
   }
 
   void _syncTerminalText(String value) {

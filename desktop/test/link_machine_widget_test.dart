@@ -365,7 +365,7 @@ void main() {
     expect(find.text('enter  link machine'), findsOneWidget);
     expect(
       find.text(
-        'Your previous agent will reconnect automatically after linking.',
+        'Your previous harness will reconnect automatically after linking.',
       ),
       findsOneWidget,
     );

@@ -47,10 +47,11 @@ import 'voice_language_store.dart';
 ///
 /// What a phone shows that the desktop splits across panes:
 ///
-///  - **Appearance** carries the six [HarnessPalette] choices the desktop keeps in its own
-///    Customize pane. They are not decoration here: the phone's tab bar, cards and terminal ground
-///    are all drawn from the chosen palette, and until now the phone shipped whichever one the
-///    desktop had last written to `~/.harness`.
+///  - **Appearance** carries the [HarnessPalette] choices the desktop keeps in its own Customize
+///    pane — six dark, two light. They are not decoration here: the phone's tab bar, cards and
+///    terminal ground are all drawn from the chosen palette, a light one is how the phone goes
+///    light, and until now the phone shipped whichever one the desktop had last written to
+///    `~/.harness`.
 ///  - **Terminal** carries the colour scheme beside the face and the size, because on a phone all
 ///    three answer the same question — what the pane looks like at arm's length.
 ///  - **Voice** carries the language the mic is transcribed in. A section of one row, and it earns
@@ -546,19 +547,30 @@ class _TerminalThemeRow extends StatelessWidget {
       );
 }
 
-/// The app's palette — the six [HarnessPalette] choices the desktop lays out as swatch cards.
+/// The app's palette — the [HarnessPalette] choices the desktop lays out as swatch cards.
 ///
 /// A sheet of names rather than a grid of previews, and the difference is the screen: the desktop's
 /// cards each draw a miniature workspace, which needs the width of a settings pane to be legible at
-/// all. Shrunk to a phone's column they would be six indistinguishable dark rectangles. The app
+/// all. Shrunk to a phone's column they would be eight indistinguishable rectangles. The app
 /// repaints on the tap anyway — [AppearancePrefsStore.setPalette] moves the notifier before it
 /// writes — so the preview IS the app behind the sheet, at full size, which no swatch can beat.
+///
+/// Under Dark and Light captions, because a light palette is the whole of light mode: there is no
+/// other switch, and a person looking for one scans for the word.
 class _PaletteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<AppearancePrefs>(
     valueListenable: appearancePrefsStore,
     builder: (context, prefs, _) {
       AppTheme.watch(context);
+      PhoneSheetAction choice(HarnessPalette palette) => PhoneSheetAction(
+        icon: palette == prefs.palette
+            ? LucideIcons.check300
+            : LucideIcons.swatchBook300,
+        label: palette.label,
+        value: palette.description,
+        onTap: () => unawaited(appearancePrefsStore.setPalette(palette)),
+      );
       return SettingsRow(
         // "App colors", beside the terminal's own "Colors": both read Graphite by default, and
         // two rows with one value looked like the same setting twice.
@@ -567,15 +579,17 @@ class _PaletteRow extends StatelessWidget {
         onTap: () => showPhoneSheet(
           context,
           title: 'App colors',
-          actions: [
-            for (final palette in HarnessPalette.values)
-              PhoneSheetAction(
-                icon: palette == prefs.palette
-                    ? LucideIcons.check300
-                    : LucideIcons.swatchBook300,
-                label: palette.label,
-                onTap: () =>
-                    unawaited(appearancePrefsStore.setPalette(palette)),
+          sections: [
+            for (final (caption, dark) in const [
+              ('Dark', true),
+              ('Light', false),
+            ])
+              PhoneSheetSection(
+                caption: caption,
+                actions: [
+                  for (final palette in HarnessPalette.values)
+                    if (palette.isDark == dark) choice(palette),
+                ],
               ),
           ],
         ),

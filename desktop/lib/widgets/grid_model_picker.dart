@@ -803,7 +803,7 @@ class _ModelPickerPanelState extends State<_ModelPickerPanel>
             padding: const EdgeInsets.only(bottom: 2),
             child: Tooltip(
               message: [
-                'Where this agent runs',
+                'Where this harness runs',
                 ?offlineSentence,
                 ?widget.subtitleFor(model),
               ].join('\n'),

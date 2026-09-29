@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:harness/shared/theme/app_theme.dart' as grid;
 import 'package:harness/shared/theme/app_type.dart';
 
 import '../core/desktop_window.dart';
@@ -24,10 +25,10 @@ Future<String?> showSwarmRenameDialog(
   context,
   keymap: keymap,
   builder: (_) => TerminalNamePrompt(
-    title: 'Rename Tab',
+    title: 'Rename Swarm',
     name: name,
     fieldKey: const Key('tab-rename-input'),
-    fieldLabel: 'Tab name',
+    fieldLabel: 'Swarm name',
     maxLength: 80,
   ),
 );
@@ -135,7 +136,12 @@ class _ProjectDialogState extends State<_ProjectDialog> {
           children: [
             Text(
               'Choose an existing working folder.',
-              style: AppType.body(color: Colors.white60),
+              style: AppType.body(
+                color: grid.AppTheme.pick(
+                  grid.AppPalette.textSecondary,
+                  Colors.white60,
+                ),
+              ),
             ),
             const SizedBox(height: 20),
             if (machineId != null)
@@ -172,11 +178,26 @@ class _ProjectDialogState extends State<_ProjectDialog> {
                 true)
               TextButton(
                 onPressed: picking ? null : clone,
-                style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                style: TextButton.styleFrom(
+                  foregroundColor: grid.AppTheme.pick(
+                    grid.AppPalette.textSecondary,
+                    Colors.white70,
+                  ),
+                ),
                 child: const Text('Clone repository…'),
               ),
             if (error != null)
-              Text(error!, style: AppType.body(color: Colors.orangeAccent)),
+              // Pale orange only reads on a dark dialog; a light one takes
+              // the deep warning ink.
+              Text(
+                error!,
+                style: AppType.body(
+                  color: grid.AppTheme.pick(
+                    grid.AppPalette.warn,
+                    Colors.orangeAccent,
+                  ),
+                ),
+              ),
           ],
         ),
       ),

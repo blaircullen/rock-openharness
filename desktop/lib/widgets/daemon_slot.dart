@@ -25,9 +25,9 @@ TerminalTheme currentTerminalTheme() =>
     debugDaemonTerminalTheme ??
     terminalThemeFor(AppTheme.palette.value, terminalThemeStore.value);
 
-/// A terminal theme for review captures and tests. Every scheme the app
-/// ships is dark today; this is how the light-theme rules (light-safe
-/// colours, the grue's patch) are drawn and checked before one ships.
+/// A terminal theme for review captures and tests: how the light-theme rules
+/// (light-safe colours, the grue's patch) are drawn and checked without
+/// switching the app's palette.
 @visibleForTesting
 TerminalTheme? debugDaemonTerminalTheme;
 

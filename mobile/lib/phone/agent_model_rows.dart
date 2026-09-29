@@ -269,7 +269,7 @@ class ModelSheetTitle extends StatelessWidget {
           ),
           Text(
             agentName == null
-                ? 'Where this agent runs'
+                ? 'Where this harness runs'
                 : 'Where $agentName runs',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

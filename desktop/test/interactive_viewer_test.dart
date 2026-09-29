@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/viewer/interactive_viewer.dart';
+import 'package:harness/ws/ws_conn.dart';
 
 Map<String, dynamic> picture() => {
   'data': base64Encode([1, 2, 3]),
@@ -112,6 +113,23 @@ void main() {
       final before = requests.length;
       await tester.pump(const Duration(seconds: 10));
       expect(requests, hasLength(before));
+      session.dispose();
+    },
+  );
+  testWidgets(
+    'renderer refusals preserve recovery guidance from the real RPC transport',
+    (tester) async {
+      final session = InteractiveViewerSession((payload) async {
+        if (payload['op'] == 'close') return {'closed': true};
+        throw const WsRequestFailure(
+          responseType: 'viewer_surface_result',
+          code: 'VIEWER_LIMIT',
+          detail: 'Close another viewer to open this one.',
+        );
+      });
+      session.configure(const Size(800, 600), false);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(session.error, 'Close another viewer to open this one.');
       session.dispose();
     },
   );

@@ -33,6 +33,7 @@ if(IDF_TARGET STREQUAL "esp32p4")
         "board/power_pro.c"
         "ui/display.c"
         "ui/panel_pro.c"
+        "ui/pro_panel_bus.c"
         "ui/touch.c"
         "ui/touch_gt911.c"
         # the screens, and the faces they are drawn in — identical files on both boards
@@ -149,13 +150,26 @@ endif()
 list(APPEND BOARD_SRCS "cable_scroll.c" "cable_json_guard.c" "cable_features.c"
     "voice_buffer.c" "audio_probe.c" "ui/ui_perf.c")
 
-# Habitat replaces the round dial's renderer only; the Pro keeps its native panel and UI.
+# Habitat replaces the board's LVGL renderer with the text compositor. BOTH boards can build it now:
+# the dial at 466 and the Pro at 720. What differs is only what sits under the compositor —
+#
+#   the panel   the dial is a CO5300 over QSPI, the Pro an ST7703 over MIPI-DSI. Both are pushed with
+#               esp_lcd_panel_draw_bitmap, which is why display_habitat.c can branch on bring-up alone
+#               and share the whole damage/strip loop. The Pro's bring-up is ui/pro_panel_bus.c, the
+#               same file its LVGL renderer uses, so the two cannot drift apart.
+#   the touch   CST816S/CST9217 against GT911, behind touch_ctrl_open() — an interface that already
+#               existed for exactly this split (see ui/touch_ctrl.h).
+#   the face    HT_FACE_PX below. The compositor itself has no opinion about resolution.
 if(DEVICE_HABITAT)
-    if(NOT IDF_TARGET STREQUAL "esp32s3")
-        message(FATAL_ERROR "DEVICE_HABITAT requires the 466-pixel ESP32-S3 round dial")
+    if(NOT IDF_TARGET STREQUAL "esp32s3" AND NOT IDF_TARGET STREQUAL "esp32p4")
+        message(FATAL_ERROR "DEVICE_HABITAT builds for the ESP32-S3 dial or the ESP32-P4 Pro")
     endif()
     list(FILTER BOARD_SRCS EXCLUDE REGEX "^ui/")
     list(REMOVE_ITEM BOARD_SRCS "audio_client.c")
+    # The Pro's panel bring-up and its touch driver are under ui/, so the filter above took them.
+    if(IDF_TARGET STREQUAL "esp32p4")
+        list(APPEND BOARD_SRCS "ui/pro_panel_bus.c" "ui/touch_gt911.c")
+    endif()
     list(APPEND BOARD_SRCS "audio_client_habitat.c" "ui/ui_perf.c"
         "ui/habitat/display_habitat.c"
         "ui/habitat/touch_habitat.c"
@@ -190,6 +204,12 @@ idf_component_register(
         "board"
     REQUIRES ${BOARD_REQUIRES}
 )
+
+# The face the text compositor is drawing on. See HT_FACE_PX in ui/habitat/terminal.h for why this is a
+# build definition rather than a #if on the target.
+if(DEVICE_HABITAT AND IDF_TARGET STREQUAL "esp32p4")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE HT_FACE_PX=720)
+endif()
 
 # snprintf() is bounded (it truncates, never overflows), but -O2 enables a noisy
 # format-truncation analysis that errors on safe same-size copies. Keep it as a warning, not error.

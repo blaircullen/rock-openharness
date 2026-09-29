@@ -232,7 +232,7 @@ const List<AppShortcut> kAppShortcuts = [
       meta: true,
       shift: true,
     ),
-    label: 'Move this pane to another tab',
+    label: 'Move this pane to another swarm',
     group: ShortcutGroup.panes,
   ),
 
@@ -317,13 +317,13 @@ const List<AppShortcut> kAppShortcuts = [
   AppShortcut(
     action: ShortcutAction.routeTask,
     activator: SingleActivator(LogicalKeyboardKey.keyB, meta: true),
-    label: 'Describe a task, and let it pick the agent',
+    label: 'Describe a task, and let it pick the harness',
     group: ShortcutGroup.actions,
   ),
   AppShortcut(
     action: ShortcutAction.reload,
     activator: SingleActivator(LogicalKeyboardKey.keyR, meta: true),
-    label: 'Reload machines and agents',
+    label: 'Reload machines and harnesses',
     group: ShortcutGroup.actions,
   ),
   AppShortcut(
@@ -434,7 +434,7 @@ const kSwarmShortcuts = [
       shift: true,
       includeRepeats: false,
     ),
-    label: 'Share the focused agent',
+    label: 'Share the focused harness',
     group: ShortcutGroup.actions,
   ),
   AppShortcut(
@@ -446,7 +446,7 @@ const kSwarmShortcuts = [
   AppShortcut(
     action: ShortcutAction.newSwarm,
     activator: SingleActivator(LogicalKeyboardKey.keyT, meta: true),
-    label: 'New Tab',
+    label: 'New Swarm',
     group: ShortcutGroup.navigate,
   ),
   // ⌘⇧T is New Terminal, as it is in a terminal app. "Reopen last closed
@@ -489,7 +489,7 @@ const kSwarmShortcuts = [
   AppShortcut(
     action: ShortcutAction.closeSwarm,
     activator: SingleActivator(LogicalKeyboardKey.keyW, meta: true),
-    label: 'Close Tab',
+    label: 'Close Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -499,7 +499,7 @@ const kSwarmShortcuts = [
       meta: true,
       shift: true,
     ),
-    label: 'Rename Tab',
+    label: 'Rename Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -509,7 +509,7 @@ const kSwarmShortcuts = [
       meta: true,
       shift: true,
     ),
-    label: 'Next Tab',
+    label: 'Next Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -519,13 +519,13 @@ const kSwarmShortcuts = [
       meta: true,
       shift: true,
     ),
-    label: 'Previous Tab',
+    label: 'Previous Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
     action: ShortcutAction.nextSwarm,
     activator: SingleActivator(LogicalKeyboardKey.tab, control: true),
-    label: 'Next Tab',
+    label: 'Next Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -535,7 +535,7 @@ const kSwarmShortcuts = [
       control: true,
       shift: true,
     ),
-    label: 'Previous Tab',
+    label: 'Previous Swarm',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -545,7 +545,7 @@ const kSwarmShortcuts = [
       meta: true,
       shift: true,
     ),
-    label: 'Show agents needing input',
+    label: 'Show harnesses needing input',
     group: ShortcutGroup.navigate,
   ),
   AppShortcut(
@@ -636,7 +636,7 @@ List<ShortcutRow> shortcutRows() {
   // The digits are not in [kAppShortcuts] — nine near-identical rows would bury
   // everything around them — so they join here, at the end of their group.
   final digits = ShortcutRow(
-    label: 'Select tabs 1–9',
+    label: 'Select swarms 1–9',
     chords: const [
       [kIsWeb ? 'Alt' : '⌘', '1 – $kTabDigitCount'],
     ],

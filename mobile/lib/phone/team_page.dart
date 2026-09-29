@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
 import '../teams/team_controller.dart';
+import 'desk_groups.dart';
 import 'phone_header.dart';
 import 'phone_navigation.dart';
 import 'tty.dart';
@@ -48,7 +49,7 @@ class TeamPage extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.all(16),
                             child: Text(
-                              'Each tab is a swarm. Add agent panes to a tab to collaborate.',
+                              'Add harnesses to a swarm so their agents can collaborate.',
                               style: Tty.of(context).style(),
                             ),
                           ),
@@ -64,7 +65,7 @@ class TeamPage extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              tab.name,
+                              deskTabName(tab, null),
                               style: Tty.of(context).style(),
                             ),
                           ),
@@ -340,7 +341,7 @@ class _PhoneTeamViewState extends State<PhoneTeamView> {
             if (candidates.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: text('No additional sessions available.'),
+                child: text('No additional harnesses available.'),
               ),
             for (final c in candidates)
               action(
@@ -364,7 +365,7 @@ class _PhoneTeamViewState extends State<PhoneTeamView> {
     text('Teams on ${widget.machineName}', faint: true),
     gap(),
     text(
-      'Connect existing sessions. Questions and answers return to the agents doing the work.',
+      'Connect existing harnesses. Questions and answers return to the agents doing the work.',
     ),
     gap(),
     action(
@@ -396,7 +397,7 @@ class _PhoneTeamViewState extends State<PhoneTeamView> {
     ),
     gap(),
     text(
-      'Choose at least two existing agents. Connect sends each one its team introduction.',
+      'Choose at least two existing harnesses. Connect sends each one its team introduction.',
       faint: true,
     ),
     gap(),
@@ -450,11 +451,11 @@ class _PhoneTeamViewState extends State<PhoneTeamView> {
       text(model.isChannel ? 'Reading swarm…' : 'Reading team…')
     else ...[
       text(
-        '${model.isChannel ? 'Swarm conversation · ' : ''}${model.team!['state']} · ${model.members.where((m) => m['enabled'] != false).length} agents',
+        '${model.isChannel ? 'Swarm conversation · ' : ''}${model.team!['state']} · ${model.members.where((m) => m['enabled'] != false).length} harnesses',
         faint: true,
       ),
       if (model.isChannel)
-        text('This tab only · membership follows the tab.', faint: true),
+        text('This swarm only · membership follows the swarm.', faint: true),
       Wrap(
         children: [
           if (model.team!['state'] != 'archived')
@@ -478,7 +479,10 @@ class _PhoneTeamViewState extends State<PhoneTeamView> {
         ],
       ),
       gap(),
-      text(model.isChannel ? 'Agents in this swarm' : 'Teammates', faint: true),
+      text(
+        model.isChannel ? 'Harnesses in this swarm' : 'Teammates',
+        faint: true,
+      ),
       for (final m in model.members) ...[
         action(
           '${model.isChannel ? memberName(m['id']) : '@${m['name']}'} · ${m['enabled'] == false ? 'removed' : (m['runtime'] as Map?)?['engine'] ?? 'offline'}',

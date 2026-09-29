@@ -147,7 +147,7 @@ class _HarnessStartPageState extends State<HarnessStartPage> {
         shadowColor: Colors.black38,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(32),
-          side: BorderSide(color: Colors.white.withValues(alpha: .10)),
+          side: BorderSide(color: boxInk(.10)),
         ),
         clipBehavior: Clip.antiAlias,
         child: SwarmSearchKeys(
@@ -466,7 +466,7 @@ class _HarnessStartPageState extends State<HarnessStartPage> {
                                       ),
                                       onPressed: widget.onNewTab ?? _open,
                                       icon: const Icon(Icons.add, size: 18),
-                                      label: const Text('New Tab'),
+                                      label: const Text('New Swarm'),
                                     ),
                                     OutlinedButton.icon(
                                       key: const ValueKey(

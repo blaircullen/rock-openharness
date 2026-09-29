@@ -91,7 +91,12 @@ Future<void> _timeOut(
 }
 
 void main() {
-  for (final entry in ['new pane', 'shortcut', 'search shortcut', 'new tab']) {
+  for (final entry in [
+    'new pane',
+    'shortcut',
+    'search shortcut',
+    'new swarm',
+  ]) {
     for (final dismissal in ['outside', 'escape']) {
       testWidgets('$entry creation dismisses once on $dismissal', (
         tester,
@@ -111,7 +116,7 @@ void main() {
             await tester.sendKeyEvent(LogicalKeyboardKey.enter);
             expect(find.byType(AlertDialog), findsNothing);
             await chord(tester, LogicalKeyboardKey.keyN);
-          case 'new tab':
+          case 'new swarm':
             await chord(tester, LogicalKeyboardKey.keyT);
             await chord(tester, LogicalKeyboardKey.keyN);
           case 'search shortcut':
@@ -136,7 +141,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
         expect(find.byType(SwarmSearchResults), findsNothing);
-        if (entry == 'new tab') {
+        if (entry == 'new swarm') {
           expect(app.swarms, hasLength(2));
           expect(app.panes, isEmpty);
           await chord(tester, LogicalKeyboardKey.keyW);

@@ -37,6 +37,8 @@ for (const channel of [false, true]) it(`routes ${channel ? 'tab channel' : 'tea
     registry.setLaunch(agent.agentId, { state: 'ready' })
     host.onMessage = (agent, text, id) => {
       sent.push({ host: i, agent, text, id: id! })
+      host.swarmPromptScopes.prepare(agent, text, undefined, id)
+      host.swarmPromptScopes.started(agent, text, 'hook')
       host.teamDelivery({ sessionId: agent, deliveryId: id!, state: 'started' })
     }
     // The fixture substitutes only the cloud's opaque envelope routing and terminal engines.
@@ -110,12 +112,22 @@ for (const channel of [false, true]) it(`routes ${channel ? 'tab channel' : 'tea
         members: agents.map((agent, i) => ({ machineId: machineIds[i], agentId: agent.agentId, name: `peer${i}` })) })
     }
     const members = Team.parse(JSON.parse(readFileSync(join(root, '0', 'ledgers', `${teamId}.json`), 'utf8'))).members
+    if (channel) {
+      await expect(call(0, { action: 'members', teamId, memberKey: members[0].key })).rejects.toThrow('current task')
+      hosts[0].swarmPromptScopes.prepare(agents[0].agentId, 'Task submitted in Device', 'device')
+      hosts[0].swarmPromptScopes.started(agents[0].agentId, 'Task submitted in Device', 'hook')
+    }
     await call(0, { action: 'ask', teamId, id: questionId, memberKey: members[0].key, to: members[1].id, text: question })
     await vi.waitFor(() => expect(sent.filter(s => s.id.endsWith(':question'))).toHaveLength(1), { timeout: 9000 })
     expect(sent.find(s => s.id.endsWith(':question'))).toMatchObject({ host: 1, agent: agents[1].agentId })
+    if (channel) {
+      // The swarm host verifies scope on the recipient's different, paired machine.
+      expect(await call(1, { action: 'members', teamId, memberKey: members[1].key })).toHaveProperty('members')
+    }
     // The recipient's CLI runs against its own daemon, which relays back to the team owner.
     await call(1, { action: 'reply', teamId, questionId, memberKey: members[1].key, text: answer })
     await call(1, { action: 'reply', teamId, questionId, memberKey: members[1].key, text: answer })
+    if (channel) expect(hosts[1].swarmPromptScopes.current(agents[1].agentId)).toBeNull()
     await vi.waitFor(() => expect(sent.filter(s => s.id.endsWith(':answer'))).toHaveLength(1), { timeout: 9000 })
     expect(sent.find(s => s.id.endsWith(':answer'))).toMatchObject({ host: 0, agent: agents[0].agentId })
     await vi.waitFor(async () => {

@@ -7,6 +7,7 @@ import '../shared/theme/app_theme.dart' as grid;
 import '../shared/theme/appearance_prefs_store.dart';
 import '../shared/theme/prompt_style.dart';
 import '../terminal/terminal_text.dart';
+import 'box_chrome.dart';
 import 'search_result_text.dart';
 
 /// The same compact identity line in the picker, pane header and live preview.
@@ -113,7 +114,7 @@ class _PromptContextViewState extends State<PromptContextView> {
               value: data.harness!,
               ascii: kHarnessPromptMarker,
               icon: null,
-              color: Colors.white60,
+              color: boxText(.60),
             ),
           if (data.leading?.isNotEmpty == true)
             (
@@ -121,7 +122,7 @@ class _PromptContextViewState extends State<PromptContextView> {
               value: data.leading!,
               ascii: '',
               icon: null,
-              color: Colors.white60,
+              color: boxText(.60),
             ),
           if (prefs.machine && data.machine?.isNotEmpty == true)
             (
@@ -173,7 +174,7 @@ class _PromptContextViewState extends State<PromptContextView> {
                       final part = segments[index];
                       final tone =
                           widget.textStyle?.color ??
-                          (prefs.color ? part.color : Colors.white60);
+                          (prefs.color ? part.color : boxText(.60));
                       final width = widths?[index];
                       final style = _style(tone);
                       // A folder cut short keeps both ends, the way editors

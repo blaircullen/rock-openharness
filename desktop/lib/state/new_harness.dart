@@ -9,7 +9,6 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/runtime_platform.dart';
-import '../analytics/analytics.dart';
 import '../core/codex_profiles.dart';
 import '../core/dsh_catalog.dart';
 import '../core/harness_catalog.dart';
@@ -1212,7 +1211,7 @@ class NewHarnessController extends ChangeNotifier {
     if (_harnessId != null && !_offered(_harnessId!)) {
       return (
         field: NewHarnessField.harness,
-        message: '$harnessLabel is unavailable. Choose an agent.',
+        message: '$harnessLabel is unavailable. Choose an agent or harness.',
       );
     }
     if (!compatibleEngines.contains(_engine) ||
@@ -1309,8 +1308,8 @@ class NewHarnessController extends ChangeNotifier {
   String get hint => switch (field) {
     NewHarnessField.launch => '',
     NewHarnessField.projectMenu => 'Search projects',
-    NewHarnessField.task => 'What should this agent work on? (optional)',
-    NewHarnessField.harness => 'Search agents',
+    NewHarnessField.task => 'What should this harness work on? (optional)',
+    NewHarnessField.harness => 'Search agents and harnesses',
     NewHarnessField.agent => 'Search agents',
     NewHarnessField.model => 'Search subscriptions and models',
     NewHarnessField.machine => 'Search machines',
@@ -1400,6 +1399,15 @@ class NewHarnessController extends ChangeNotifier {
           ? 'A first message can be $kFirstTaskMaxLength characters; '
                 'this is ${value.trim().length}.'
           : null;
+      // A suggested project follows the task it will be named after; a name
+      // the person typed is theirs and stays.
+      if (_project.generated case final suggested?) {
+        final next = _generatedProject();
+        if (next.generated?.generatedTask != suggested.generatedTask) {
+          _project = next;
+          unawaited(_refreshGeneratedProject());
+        }
+      }
       notifyListeners();
       return;
     }
@@ -1883,6 +1891,8 @@ class NewHarnessController extends ChangeNotifier {
     ProjectFolderRequest.generated(
       label: _harnessId == null ? engineIdentity(_engine).label : harnessLabel,
       at: _now(),
+      // Only a task the agent will actually be sent names the project.
+      task: takesTask ? task : null,
     ),
   );
 
@@ -3203,7 +3213,9 @@ class NewHarnessController extends ChangeNotifier {
       if (!_offered(harness)) {
         busy = false;
         focusField(NewHarnessField.harness);
-        return _fail('$harnessLabel is unavailable. Choose an agent.');
+        return _fail(
+          '$harnessLabel is unavailable. Choose an agent or harness.',
+        );
       }
       harness =
           harnessForOperation(machine.dsh.entries, harness)?.id ?? harness;
@@ -3248,6 +3260,10 @@ class NewHarnessController extends ChangeNotifier {
       dsh: harness,
       // Sent exactly as written; an agent that cannot take one is never sent it.
       prompt: takesTask && firstMessage.isNotEmpty ? firstMessage : null,
+      // A new project named by the person, or after its task, names the agent
+      // too — until the engine titles the session. A clock-named one leaves
+      // it to the machine ("Solder harness 9-18 13:02").
+      name: projectFolderRequest?.agentName,
       attempt: attempt,
     );
     if (_disposed) return NewHarnessOutcome.failed;
@@ -3264,11 +3280,6 @@ class NewHarnessController extends ChangeNotifier {
       }
       return _fail(failure);
     }
-    analytics.agentCreated(
-      engine: choice,
-      bypassPermission: bypass,
-      permissionMode: permissionMode,
-    );
     unawaited(app.agentPreference.remember(choice, harnessId: _harnessId));
     busy = false;
     status = null;

@@ -41,6 +41,7 @@ pub const COMMANDS: &[(&str, &str, &str)] = &[
     ("list-keys", "lsk", "Key bindings (-T a table, -1N one key)"),
     ("keys", "keys", "Every key binding, searched as you type (C-b ? lists them as tmux does)"),
     ("answer-harness", "answer", "Answer a harness's question: answer -t name 2 (its second choice), 1,3, or your own words"),
+    ("open-viewer", "view", "Open viewer in your browser (-t harness, -p print link, -c copy, -w browser app)"),
     ("open-harness", "openh", "A harness into a window of its own (-h/-v beside/below -t's pane, -d not gone to): open-harness -s name"),
     ("list-windows", "lsw", "The windows (-F a format)"),
     ("list-panes", "lsp", "The panes (-a/-s every window, -t one, -F a format)"),
@@ -3459,6 +3460,15 @@ fn run_words_in(app: &mut App, words: &[String]) {
             let prompt = match opt(words, "-p") { Some(p) => expand(app, &p), None => format!("Confirm '{name}'? ({key}/n)") };
             app.modal = Some(Modal::Confirm { prompt, command, key, enter_yes: flag(words, "-y") });
             app.wait_cli = app.capture.is_some() && !flag(words, "-b");
+        }
+        "open-viewer" => {
+            let options = match crate::viewer::Options::parse(&words[1..]) { Ok(o) => o, Err(e) => return app.error(e) };
+            let key = match harness_target(app, words) {
+                Ok(Some(k)) => k,
+                Ok(None) => match input::focused_key(app) { Some(k) => k, None => return app.error("no harness here — use view -t <harness>") },
+                Err(e) => return app.error(e),
+            };
+            crate::viewer::show(app, key, options);
         }
         "new-harness" => { if words.len() < 2 { input::run(app, "new") } else { input::new_harness_words(app, &words[1..]) } }
         "new-terminal" => input::run(app, "terminal"),

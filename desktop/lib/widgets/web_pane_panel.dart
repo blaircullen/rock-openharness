@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+import '../core/open_in_browser.dart';
 import '../core/runtime_platform.dart';
 import '../core/models.dart' show AgentVerdict;
 import '../core/test_run.dart';
@@ -212,6 +213,15 @@ class _WebPanePanelState extends State<WebPanePanel> {
         .catchError((_) {});
   }
 
+  Future<void> _openInBrowser(Uri page) async {
+    if (await openInBrowser(page) || !mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Could not open a browser. Copy the address instead.'),
+      ),
+    );
+  }
+
   void _reload() {
     if (_remote case final remote?) {
       remote.reload();
@@ -352,11 +362,24 @@ class _WebPanePanelState extends State<WebPanePanel> {
     final controller = _controller;
     final url = widget.pane.url;
     if (controller == null) {
+      // No embedded webview on this platform (it ships for macOS only — see
+      // [webviewAvailable]), so the page it would have shown opens in the
+      // browser instead of sitting here as text (openharness#108).
+      final page = url == null ? null : Uri.tryParse(url);
       return _Notice(
         key: const ValueKey('web-pane-placeholder'),
         icon: LucideIcons.globe,
         title: 'Viewer',
-        detail: url ?? 'No viewer yet.',
+        detail: page == null
+            ? 'No viewer yet.'
+            : 'This viewer opens in your browser on this platform.\n$url',
+        action: page == null
+            ? null
+            : TextButton(
+                key: const ValueKey('web-pane-open-in-browser'),
+                onPressed: () => _openInBrowser(page),
+                child: const Text('Open in browser'),
+              ),
       );
     }
     return Stack(
@@ -428,7 +451,7 @@ class _ViewerActions extends StatelessWidget {
         action('Reload viewer', LucideIcons.refreshCw, onReload),
         const SizedBox(width: 2),
         action(
-          zoomed ? 'Restore agents' : 'Zoom viewer',
+          zoomed ? 'Restore harnesses' : 'Zoom viewer',
           zoomed ? LucideIcons.minimize : LucideIcons.maximize,
           onZoom,
         ),

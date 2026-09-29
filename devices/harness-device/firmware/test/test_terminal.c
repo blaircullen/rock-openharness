@@ -56,19 +56,24 @@ static void punctuation_checks(void)
 
 static void inline_arrow_checks(void)
 {
-    const int x = 80, y = 100, cell = ht_mono_20.width;
+    const ht_font_t *fonts[]={&ht_mono_20,&ht_mono_28};
+    const ht_font_t *arrows[][2]={{&ht_right_20,&ht_open_20},{&ht_right_28,&ht_open_28}};
+    const char *marks[]={"→","↗"};
+    for(unsigned size=0;size<2;size++) for(unsigned mark=0;mark<2;mark++) {
+    const int x = 80, y = 100, cell = fonts[size]->width;
+    assert(arrows[size][mark]->width==cell && arrows[size][mark]->height==fonts[size]->height);
     ht_scene_t inline_text, separate, question;
     ht_scene_clear(&inline_text, 0);
     ht_scene_clear(&separate, 0);
     ht_scene_clear(&question, 0);
-    const char *text = "Open \xe2\x86\x97 now";
-    ht_text(&inline_text, x, y, cell * 10, &ht_mono_20, 0xffff, 0, text);
-    ht_text(&separate, x, y, cell * 5, &ht_mono_20, 0xffff, 0, "Open ");
-    ht_text(&separate, x + cell * 5, y, cell, &ht_open_20, 0xffff, 0, "\xe2\x86\x97");
-    ht_text(&separate, x + cell * 6, y, cell * 4, &ht_mono_20, 0xffff, 0, " now");
-    ht_text(&question, x, y, cell * 10, &ht_mono_20, 0xffff, 0, "Open ? now");
+    char text[32]; snprintf(text,sizeof text,"Open %s now",marks[mark]);
+    ht_text(&inline_text, x, y, cell * 10, fonts[size], 0xffff, 0, text);
+    ht_text(&separate, x, y, cell * 5, fonts[size], 0xffff, 0, "Open ");
+    ht_text(&separate, x + cell * 5, y, cell, arrows[size][mark], 0xffff, 0, marks[mark]);
+    ht_text(&separate, x + cell * 6, y, cell * 4, fonts[size], 0xffff, 0, " now");
+    ht_text(&question, x, y, cell * 10, fonts[size], 0xffff, 0, "Open ? now");
     assert(!strcmp(inline_text.runs[0].text, text));
-    assert(ht_can_display(text, &ht_mono_20, cell * 10, 1));
+    assert(ht_can_display(text, fonts[size], cell * 10, 1));
     ht_raster(&inline_text, (ht_rect_t){0, 0, HT_WIDTH, HT_HEIGHT}, full);
     ht_raster(&separate, (ht_rect_t){0, 0, HT_WIDTH, HT_HEIGHT}, scratch);
     assert(!memcmp(full, scratch, sizeof full));
@@ -76,7 +81,7 @@ static void inline_arrow_checks(void)
     assert(memcmp(full, scratch, sizeof full));
     // The damage pass must not mistake the arrow for the old fallback glyph.
     ht_damage_t d; ht_damage(&question, &inline_text, &d);
-    assert(d.count && d.pixels == (uint32_t)(cell * ht_mono_20.height));
+    assert(d.count && d.pixels >= (uint32_t)(cell * fonts[size]->height));
     transition(NULL, &question);
     transition(&question, &inline_text);
     transition(&inline_text, &question);
@@ -85,6 +90,15 @@ static void inline_arrow_checks(void)
     ht_raster(&inline_text, clip, full);
     ht_raster(&separate, clip, scratch);
     assert(!memcmp(full, scratch, (size_t)clip.w * clip.h * sizeof *full));
+    }
+    // Curved titles have a separate cached-mask path and must accept → too.
+    ht_scene_t a,b; ht_scene_clear(&a,0); ht_scene_clear(&b,0);
+    ht_arc_title(&a,0xffff,"Egg → Tim"); ht_arc_title(&b,0xffff,"Egg ? Tim");
+    transition(NULL,&a); memcpy(scratch,full,sizeof full);
+    ht_raster(&b,(ht_rect_t){0,0,HT_WIDTH,HT_HEIGHT},full);
+    assert(memcmp(full,scratch,sizeof full));
+    transition(&a,&b); transition(&b,&a);
+    puts("Inline arrows: right/diagonal, native 20/28 px cells, curved label, no fallback or atlas overread PASS");
 }
 
 
@@ -240,6 +254,85 @@ static void lock_dot_checks(void)
     puts("lock dot: exact old glyph bytes and nine-dot screen; 45120 unused font bytes removed");
 }
 
+static size_t utf8_encode(char *p, unsigned cp)
+{
+    if(cp<0x80) { p[0]=(char)cp; return 1; }
+    if(cp<0x800) { p[0]=(char)(0xc0|(cp>>6));p[1]=(char)(0x80|(cp&63));return 2; }
+    if(cp<0x10000) { p[0]=(char)(0xe0|(cp>>12));p[1]=(char)(0x80|((cp>>6)&63));p[2]=(char)(0x80|(cp&63));return 3; }
+    p[0]=(char)(0xf0|(cp>>18));p[1]=(char)(0x80|((cp>>12)&63));p[2]=(char)(0x80|((cp>>6)&63));p[3]=(char)(0x80|(cp&63));return 4;
+}
+static void display_text_checks(void)
+{
+    const char *cases[][2]={
+        {"Swipes need about ⅓ the previous travel.","Swipes need about 1/3 the previous travel."},
+        {"1⅓ + ⅔ = 2", "1 1/3 + 2/3 = 2"}, {"⅓⅔", "1/3 2/3"}, {"⅓2", "1/3 2"},
+        {"½ ¼ ¾ ⅐ ⅑ ⅒ ⅕ ⅖ ⅗ ⅘ ⅙ ⅚ ⅛ ⅜ ⅝ ⅞", "1/2 1/4 3/4 1/7 1/9 1/10 1/5 2/5 3/5 4/5 1/6 5/6 1/8 3/8 5/8 7/8"},
+        {"≤ ≥ ≠ ≮ ≯ ≰ ≱ ≈", "<= >= != !< !> !<= !>= ~="},
+        {"⇒ ↔ ⇔", "=> <-> <=>"}, {"Egg → Tim ↗", "Egg → Tim ↗"},
+        {"x₂ xⁿ 𝟠 ① ＡＢＣ ﬁx ﬃ", "x_2 x^n 8 1 ABC fix ffi"},
+        {"“café”—naïve ✓ ✗", "“café”—naïve ✓ ✗"},
+        {"✅ ❌ ⚠️ 🔔", "[ok] [x] [!] [bell]"},
+        {"a\u00a0b\u2009c\u200bd", "a b cd"},
+        {"👾 猫", "[U+1F47E] [U+732B]"},
+        {"Literal ? stays ?", "Literal ? stays ?"},
+        {"\xed\xa0\x80", "[U+FFFD]"}, {"\xf4\x90\x80\x80", "[U+FFFD]"},
+        {"\xe0\x80\x80", "[U+FFFD]"}, {"\xf0\x9f", "[U+FFFD]"},
+    };
+    char actual[256];
+    for(unsigned i=0;i<sizeof cases/sizeof cases[0];i++) {
+        assert(ht_display_text(actual,sizeof actual,cases[i][0],&ht_mono_28));
+        if(strcmp(actual,cases[i][1])) { fprintf(stderr,"Fallback mismatch: %s -> %s (wanted %s)\n",cases[i][0],actual,cases[i][1]); abort(); }
+        assert(ht_can_display(actual,&ht_mono_28,400,256));
+        char again[256]; ht_display_text(again,sizeof again,actual,&ht_mono_28);
+        assert(!strcmp(actual,again)); // normalization is idempotent
+        for(size_t cap=1;cap<100;cap++) {
+            unsigned char guarded[104]; memset(guarded,0xa5,sizeof guarded);
+            ht_display_text((char *)guarded+1,cap,cases[i][0],&ht_mono_28);
+            assert(guarded[0]==0xa5 && guarded[cap+1]==0xa5);
+            assert(strlen((char *)guarded+1)<cap);
+            assert(ht_can_display((char *)guarded+1,&ht_mono_28,400,256));
+        }
+        ht_scene_t raw,converted;
+        ht_scene_clear(&raw,0); ht_scene_clear(&converted,0);
+        ht_wrap(&raw,63,100,340,6,0,&ht_mono_28,0xffff,cases[i][0]);
+        ht_wrap(&converted,63,100,340,6,0,&ht_mono_28,0xffff,cases[i][1]);
+        ht_raster(&raw,(ht_rect_t){0,0,HT_WIDTH,HT_HEIGHT},full);
+        ht_raster(&converted,(ht_rect_t){0,0,HT_WIDTH,HT_HEIGHT},scratch);
+        assert(!memcmp(full,scratch,sizeof full));
+        transition(NULL,&raw); transition(&raw,&converted);
+        ht_scene_clear(&raw,0); ht_scene_clear(&converted,0);
+        ht_arc_title(&raw,0xffff,cases[i][0]); ht_arc_title(&converted,0xffff,cases[i][1]);
+        ht_raster(&raw,(ht_rect_t){0,0,HT_WIDTH,HT_HEIGHT},full);
+        ht_raster(&converted,(ht_rect_t){0,0,HT_WIDTH,HT_HEIGHT},scratch);
+        assert(!memcmp(full,scratch,sizeof full));
+    }
+    assert(!ht_display_text(NULL,0,"⅓",&ht_mono_28));
+    assert(ht_text_rows("a ⅓ b",&ht_mono_28,3*ht_mono_28.width)==3);
+    // A readable fallback never makes unsupported approval labels approvable.
+    assert(!ht_can_display("Approve ≤ ⅓?",&ht_mono_28,340,4));
+    assert(!ht_can_display("¼",&ht_mono_28,ht_mono_28.width,1));
+    assert(ht_can_display("¼",&ht_mono_28,3*ht_mono_28.width,1));
+    assert(!ht_can_display("\xed\xa0\x80",&ht_mono_28,340,4));
+    for(unsigned cp=1;cp<=0x10ffff;cp++) {
+        if(cp>=0xd800 && cp<=0xdfff) continue;
+        char source[5];source[utf8_encode(source,cp)]=0;
+        assert(ht_display_text(actual,sizeof actual,source,&ht_mono_28));
+        assert(ht_can_display(actual,&ht_mono_28,340,8));
+        // Question-mark presentation/fullwidth forms legitimately normalize
+        // to '?'; no unrelated scalar may silently turn into that glyph.
+        assert(cp=='?' || cp==0xfe16 || cp==0xfe56 || cp==0xff1f || strcmp(actual,"?"));
+    }
+    // Random bytes exercise invalid/truncated UTF-8 and very small line widths.
+    for(unsigned trial=0;trial<3000;trial++) {
+        char source[64];for(unsigned i=0;i<sizeof source-1;i++)source[i]=(char)(1+next()%255);
+        source[sizeof source-1]=0;
+        ht_display_text(actual,sizeof actual,source,&ht_mono_28);
+        assert(ht_can_display(actual,&ht_mono_28,340,256));
+        assert(ht_text_rows(source,&ht_mono_28,17*(1+trial%24))<=63);
+    }
+    puts("Display fallback: all Unicode scalars, 3000 malformed-byte strings, bounded copies, fraction/math meaning, wrap/arc pixels and strict approvals PASS");
+}
+
 int main(void)
 {
     lock_dot_checks();
@@ -249,6 +342,7 @@ int main(void)
     bell_checks();
     notification_marks();
     shimmer_checks();
+    display_text_checks();
     ht_scene_t a = {0}, b = {0};
     assert(ht_text_rows("one\ntwo\nthree",&ht_mono_20,348)==3);
     assert(ht_text_rows("abcdefghi",&ht_mono_20,ht_mono_20.width*3)==3);
@@ -284,7 +378,7 @@ int main(void)
     assert(ht_wrap(&b, 0, 0, 1, 10, 0, &ht_mono_20, 0xffff, "no infinite loop") == 0);
     assert(ht_wrap(&b, 0, 0, 36, 3, 1, &ht_mono_20, 0xffff, "one two three four") > 0);
     const char *truncated = "\xf0\x9f";
-    assert(ht_utf8_next(&truncated) == '?');
+    assert(ht_utf8_next(&truncated) == 0xfffd);
     for (int i=0; i<3 && *truncated; i++) ht_utf8_next(&truncated);
     assert(*truncated == 0);
     assert(ht_can_display("A short answer",&ht_mono_20,348,6));

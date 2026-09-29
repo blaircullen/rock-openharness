@@ -236,6 +236,12 @@ function readStdin() {
   })
 }
 
+function boundedPrompt(prompt) {
+  // An oversized/escape-heavy prompt must still announce its submission so the daemon
+  // clears earlier scope. Keep the serialized field within the hook receiver's bounds.
+  return Buffer.byteLength(JSON.stringify(prompt)) <= 128 * 1024 ? prompt : ''
+}
+
 function post(port, path, body) {
   return new Promise((resolve) => {
     const payload = JSON.stringify(body)
@@ -1425,6 +1431,7 @@ async function main() {
       engine,
       hookEvent: grokEventName,
       sessionId,
+      ...(grokEventName === 'UserPromptSubmit' && typeof input.prompt === 'string' ? { prompt: boundedPrompt(input.prompt) } : {}),
       transcriptPath,
       cwd,
       ...terminalHookFields(tmuxPane),
@@ -1557,6 +1564,8 @@ async function main() {
     engine,
     hookEvent: event,
     sessionId: input.session_id || input.conversation_id,
+    ...(event === 'UserPromptSubmit' && (engine === 'claude' || engine === 'codex') && typeof input.prompt === 'string'
+      ? { prompt: boundedPrompt(input.prompt) } : {}),
     transcriptPath,
     // Devin's payload carries no cwd; the hook process inherits the session's working directory.
     cwd: Array.isArray(input.workspace_roots) ? input.workspace_roots[0] : (input.cwd || (engine === 'devin' ? process.cwd() : undefined)),

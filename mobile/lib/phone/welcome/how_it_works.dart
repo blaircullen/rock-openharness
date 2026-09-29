@@ -8,7 +8,7 @@ import '../tty_controls.dart';
 Future<void> openHowItWorks(BuildContext context) =>
     Navigator.of(context).push(phoneRoute((_) => const HowItWorksPage()));
 
-/// The five words Harness uses and the gestures nothing on screen spells out — in one page, in
+/// The words Harness uses and the gestures nothing on screen spells out — in one page, in
 /// plain language, reachable from Settings, from Find (`help`) and from setting up a computer.
 class HowItWorksPage extends StatelessWidget {
   const HowItWorksPage({super.key});
@@ -22,9 +22,15 @@ class HowItWorksPage extends StatelessWidget {
     ('Agent', 'The AI that does the work: Claude Code, Codex, and others.'),
     (
       'Harness',
-      'One session of an agent — Claude Code, say, working in one project on '
-          'one computer, in a live terminal you can watch and talk to. One agent '
-          'can run many; they keep going when you close the app.',
+      'One running session of an agent, with its own conversation and working '
+          'context. You can run several harnesses with the same agent. '
+          'They keep going when you close the app.',
+    ),
+    (
+      'Swarm',
+      'A group of harnesses, shown together in the workspace. Add a harness to '
+          'include it. With Swarm collaboration enabled in Experimental settings, '
+          'their agents can consult peers in the same swarm.',
     ),
     (
       'Project',

@@ -60,6 +60,9 @@ class ModelManagerController extends ChangeNotifier {
   GridModels? models;
   List<LocalModel> localModels = const [];
   double? memoryBytes;
+
+  /// Free space where downloads land, or null when the daemon did not say.
+  double? freeDiskBytes;
   String? hardware, error, _managerError;
   bool preparing = false, opening = false, scanning = false, loaded = false;
   bool inventoryAvailable = false, operationBusy = false;
@@ -171,6 +174,7 @@ class ModelManagerController extends ChangeNotifier {
       models = null;
       localModels = const [];
       memoryBytes = null;
+      freeDiskBytes = null;
       hardware = null;
       error = null;
       _managerError = null;
@@ -442,6 +446,10 @@ class ModelManagerController extends ChangeNotifier {
           final memory = answer['memoryBytes'];
           memoryBytes = memory is num && memory.isFinite && memory > 0
               ? memory.toDouble()
+              : null;
+          final disk = answer['freeDiskBytes'];
+          freeDiskBytes = disk is num && disk.isFinite && disk >= 0
+              ? disk.toDouble()
               : null;
           hardware = answer['hardware'] as String?;
           operationBusy = answer['busy'] == true;

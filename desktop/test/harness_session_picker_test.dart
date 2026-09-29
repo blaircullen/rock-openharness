@@ -103,18 +103,18 @@ void main() {
     );
     await tester.enterText(resourceField, '');
     await selectResource(tester, 'a0');
-    await runResourceCommand(tester, 'Show paused sessions');
+    await runResourceCommand(tester, 'Show paused harnesses');
     expect(
       resourceSearch(tester).rows.where((row) => !row.isCreate).single.agentId,
       'saved',
     );
     await selectResource(tester, 'saved');
-    await runResourceCommand(tester, 'Show all sessions');
+    await runResourceCommand(tester, 'Show all harnesses');
     expect(
       resourceSearch(tester).rows.where((row) => !row.isCreate),
       hasLength(2),
     );
-    await runResourceCommand(tester, 'Sort sessions: Name');
+    await runResourceCommand(tester, 'Sort harnesses: Name');
     expect(resourceSearch(tester).sessionSort, SessionSort.name);
     for (var i = 0; i < 3 && resourceField.evaluate().isNotEmpty; i++) {
       await key(tester, LogicalKeyboardKey.escape);

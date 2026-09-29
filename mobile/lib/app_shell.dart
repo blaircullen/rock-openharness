@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'analytics/analytics_lifecycle.dart';
+import 'stats/stats_lifecycle.dart';
 import 'core/crash_log.dart';
 import 'state/app_state.dart';
 import 'viewer/viewer_services.dart';
@@ -130,9 +131,9 @@ class HarnessApp extends StatelessWidget {
       ),
       // The design system's own `buildAppTheme` — see the note where a second,
       // hand-written `ThemeData` used to shadow it, in `lib/theme/app_theme.dart`.
-      // Harness Desktop is dark-only: one theme, no `darkTheme`/`themeMode` to
-      // resolve between.
-      theme: grid.buildAppTheme(brightness: Brightness.dark),
+      // One theme, no `darkTheme`/`themeMode` to resolve between: the chosen
+      // palette says whether it is light or dark.
+      theme: grid.buildAppTheme(brightness: prefs.palette.brightness),
       // The UI size reaches every `Text` as a text SCALE rather than as hundreds
       // of edited call sites. `withClampedTextScaling` with both bounds equal IS
       // the way to force a factor — MediaQuery has no "set the scale"
@@ -157,7 +158,7 @@ class HarnessApp extends StatelessWidget {
         maxScaleFactor: scale,
         child: _GridTokenScope(child: child ?? const SizedBox.shrink()),
       ),
-      home: AnalyticsLifecycle(
+      home: StatsLifecycle(
         child: RootShell(
           authenticatedScreen: authenticatedScreen,
           signedOutScreen: signedOutScreen,
@@ -175,9 +176,13 @@ class HarnessApp extends StatelessWidget {
 /// mounted with. [grid.BrightnessScope] marks the ones that called
 /// `AppTheme.watch` dirty directly, across that boundary.
 ///
-/// Pinned to [Brightness.dark] rather than read from `Theme.of(context)`:
-/// Harness Desktop is dark-only, and there is no other theme for `Theme.of`
-/// to ever resolve to here.
+/// Set from the palette rather than read from `Theme.of(context)`: the palette
+/// is where light or dark is chosen, and [HarnessApp] builds the theme from the
+/// same value, so the two cannot disagree.
+///
+/// The status and navigation bar icons follow it too. Nothing else sets them —
+/// the phone draws no `AppBar` — so without this they kept the OS's own style
+/// and went dark-on-dark or light-on-light with the app.
 class _GridTokenScope extends StatelessWidget {
   const _GridTokenScope({required this.child});
 
@@ -185,9 +190,30 @@ class _GridTokenScope extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    grid.AppTheme.brightness.value = Brightness.dark;
-    return grid.BrightnessScope(child: child);
+    final brightness = grid.AppTheme.palette.value.brightness;
+    grid.AppTheme.brightness.value = brightness;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: systemBarsFor(brightness),
+      child: grid.BrightnessScope(child: child),
+    );
   }
+}
+
+/// The system bars' style for an app of [brightness]: icons that contrast with it, over the
+/// transparent bars `main.dart` draws edge to edge under. The colours are restated because an
+/// [AnnotatedRegion]'s style replaces the one set at launch.
+SystemUiOverlayStyle systemBarsFor(Brightness brightness) {
+  // The icons are the opposite of the app; iOS's `statusBarBrightness` names the GROUND instead.
+  final icons = brightness == Brightness.dark
+      ? Brightness.light
+      : Brightness.dark;
+  return SystemUiOverlayStyle(
+    statusBarColor: const Color(0x00000000),
+    systemNavigationBarColor: const Color(0x00000000),
+    statusBarIconBrightness: icons,
+    systemNavigationBarIconBrightness: icons,
+    statusBarBrightness: brightness,
+  );
 }
 
 /// Which screen the app's state calls for.

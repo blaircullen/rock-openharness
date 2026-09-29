@@ -19,8 +19,15 @@ static void compare(const ht_scene_t *scene, ht_rect_t clip)
 }
 int main(void)
 {
+    // The Pro's two atlases are in this list too: they are the ones the cache was widened for, and
+    // the ones whose extra columns the unrolled copy in terminal.c used to drop.
     const ht_font_t *fonts[] = {&ht_octopus_font_2, &ht_octopus_font_4,
-        &ht_octopus_font_6, &ht_octopus_font_8, &ht_octopus_font_10, &ht_mono_20};
+        &ht_octopus_font_6, &ht_octopus_font_8, &ht_octopus_font_10,
+#if HT_FACE_PX >= 720
+        &ht_octopus_font_14, &ht_octopus_font_16,
+#endif
+        &ht_mono_20};
+    const unsigned nfonts = sizeof fonts / sizeof *fonts;
     char alphabet[128];
     for (int i = 0; i < 95; i++) alphabet[i] = i + 32;
     memcpy(alphabet + 95, "\xe2\x80\x94\xe2\x80\x9c\xf0\x9f\x90\x99", 11);
@@ -28,7 +35,7 @@ int main(void)
     for (unsigned i = 0; i < 6000; i++) {
         ht_scene_clear(&scene, next());
         for (unsigned row = 0, count = 1 + next() % 12; row < count; row++) {
-            const ht_font_t *font = fonts[next() % 6];
+            const ht_font_t *font = fonts[next() % nfonts];
             ht_text(&scene, (int)(next() % 120) - 40, (int)(next() % 130) - 25,
                 1 + next() % 465, font, next(), next() % 2 ? scene.background : next(),
                 alphabet + next() % 95);
@@ -55,6 +62,11 @@ int main(void)
             assert(ht_glyph_cache_builds() == builds); // full-to-strip reuse, no palette churn
         }
     }
+    // 24 slots of the widest atlas this face has: 5x10 on the dial, 8x16 on the Pro.
+#if HT_FACE_PX >= 720
+    assert(ht_glyph_cache_bytes() <= 6400);
+#else
     assert(ht_glyph_cache_bytes() <= 2600);
+#endif
     puts("glyph cache: 6000 clipped mixed scenes + 252 complete poses match the original renderer; guards and warm reuse pass");
 }

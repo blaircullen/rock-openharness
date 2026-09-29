@@ -53,7 +53,7 @@ static void audio_notify_done(void) {} // no real speaker or audio hardware in t
         extra += 'assert(!decoder.corrupt_frames && !decoder.discarded_bytes && !s_bad && !s_unknown && s_last_rx_us);scene_take();\n'
         extra += f'assert(active()->busy=={str(wanted["busy"]).lower()});assert(result_visible()=={str(wanted["recap"]).lower()});\n'
         extra += 'assert(!strcmp(active()->tool,' + json.dumps(wanted['status']) + '));\n'
-        extra += 'assert(title_is(active()->name));char bell[24];if(s.notice_count)snprintf(bell,sizeof bell,HT_BELL \" %d\",s.notice_count);else strcpy(bell,HT_BELL);assert(status_is(bell));\n'
+        extra += 'assert(title_is(active()->name));char bell[24];unsigned unread=notice_unread();if(unread)snprintf(bell,sizeof bell,HT_BELL \" %u\",unread);else bell[0]=0;assert(status_is(bell));\n'
         display_status = wanted.get('display_status', wanted['status'])
         if display_status:
             extra += 'fake_ms+=3400;surface_tick(fake_ms);scene_take();\n'

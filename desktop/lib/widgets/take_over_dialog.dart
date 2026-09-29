@@ -105,7 +105,7 @@ class _TakeOverPromptState extends State<_TakeOverPrompt> {
                           ? '$_engineName is working on it in a terminal.'
                           : 'It is open in $_engineName in a terminal. '
                                 'Moving it here quits it there.',
-                      style: boxMonoStyle(color: Colors.white70),
+                      style: boxMonoStyle(color: boxText(.70)),
                     ),
                     const SizedBox(height: 8),
                     Text(

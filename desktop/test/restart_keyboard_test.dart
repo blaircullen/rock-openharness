@@ -143,7 +143,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        'Started a new conversation. The previous session could not be resumed.',
+        'Started a new conversation. The previous conversation could not be resumed.',
       ),
       findsOneWidget,
     );

@@ -73,7 +73,9 @@ class _TtyPrimaryButtonState extends State<TtyPrimaryButton> {
         : _down
         ? Color.alphaBlend(Colors.black.withValues(alpha: 0.18), tty.green)
         : tty.green;
-    final ink = !enabled && !widget.busy ? tty.faint : tty.theme.black;
+    final ink = !enabled && !widget.busy
+        ? tty.faint
+        : tty.onFill(tty.theme.black);
     return Semantics(
       button: true,
       enabled: enabled,
@@ -525,7 +527,7 @@ class TtyFieldMic extends StatelessWidget {
               child: Icon(
                 live ? LucideIcons.arrowUp300 : LucideIcons.mic300,
                 size: 18,
-                color: live ? tty.theme.brightWhite : tty.text,
+                color: live ? tty.onFill(tty.theme.brightWhite) : tty.text,
               ),
             ),
           ),

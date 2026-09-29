@@ -13,7 +13,11 @@ import 'model_manager_controller.dart';
 enum ModelSearchSection {
   subscriptions('Subscriptions'),
   apis('APIs'),
-  local('Your local AI models'),
+  local('Your models'),
+
+  /// Models a machine of yours can download: the grid catalog's picks for it. Its heading names the
+  /// machine and its memory ([ModelSearchCatalog.catalogHeading]); this label is its search word.
+  catalog('Get models'),
   shared('Shared with you');
 
   const ModelSearchSection(this.label);
@@ -58,9 +62,19 @@ class ModelSearchEntry {
       ? ModelSearchSection.subscriptions
       : api != null
       ? ModelSearchSection.apis
+      : isDownload
+      ? ModelSearchSection.catalog
       : own
       ? ModelSearchSection.local
       : ModelSearchSection.shared;
+
+  /// A catalog model a machine of yours does not have yet — downloading, or not started on.
+  /// An engine of yours that is not serving is still yours ([LocalModel.canStop]).
+  bool get isDownload =>
+      local != null &&
+      !local!.downloaded &&
+      !local!.canStop &&
+      gridModel == null;
 
   bool get needsDownload =>
       local != null &&
@@ -246,8 +260,6 @@ class ModelSearchCatalog extends ChangeNotifier {
                 words.subtitle ??
                 (manager.models?.reachable == false
                     ? 'Unavailable'
-                    : section.own
-                    ? 'Suggested'
                     : 'Available'),
           ),
         );
@@ -268,9 +280,9 @@ class ModelSearchCatalog extends ChangeNotifier {
     local.sort((a, b) {
       final state = rank(a.owner, a.model).compareTo(rank(b.owner, b.model));
       if (state != 0) return state;
-      // Preserve the daemon's grid-ranking order (the order the catalog
-      // service returned), not an alphabetised re-sort — so the top models
-      // match `grid catalog` / `list` instead of listing alphabetical first.
+      // Preserve the daemon's order, not an alphabetised re-sort: it ranks the
+      // catalog's downloads for a coding agent on that machine (`rankForCoding`
+      // in the CLI's localModels.ts), so its first are the ones to offer.
       final aIndex = a.owner.localModels.indexOf(a.model);
       final bIndex = b.owner.localModels.indexOf(b.model);
       final order = aIndex.compareTo(bIndex);
@@ -285,6 +297,16 @@ class ModelSearchCatalog extends ChangeNotifier {
               a.model,
             ).compareTo(_managedKey(b.owner, b.model));
     });
+    // A row names its model alone; the quantization is in the preview. Only two versions of one
+    // model on one machine need it to be told apart.
+    final named = <String, int>{};
+    for (final (:owner, :model) in local) {
+      final key = '${identityHashCode(owner)}:${model.name.toLowerCase()}';
+      named[key] = (named[key] ?? 0) + 1;
+    }
+    bool twin(ModelManagerController owner, LocalModel model) =>
+        (named['${identityHashCode(owner)}:${model.name.toLowerCase()}'] ?? 0) >
+        1;
     final all = [
       for (final (:owner, :model) in local)
         ModelSearchEntry(
@@ -294,7 +316,9 @@ class ModelSearchCatalog extends ChangeNotifier {
                 ? 'model:local:${model.id}'
                 : 'model:machine:${_managedKey(owner, model)}'),
           ),
-          name: model.displayName,
+          name: model.name.isEmpty || twin(owner, model)
+              ? model.displayName
+              : model.name,
           source: 'Local',
           node: owner.machine?.machine.displayName,
           status: localStatus(model, controller: owner),
@@ -302,7 +326,10 @@ class ModelSearchCatalog extends ChangeNotifier {
           own: true,
           controller: owner,
           gridModel: served[_managedKey(owner, model)],
-          searchAliases: [?owner.machine?.machine.hostname],
+          searchAliases: [
+            ?owner.machine?.machine.hostname,
+            ?model.quantization,
+          ],
         ),
       ...discovered.where((entry) => entry.own),
       ...discovered.where((entry) => !entry.own),
@@ -369,13 +396,16 @@ class ModelSearchCatalog extends ChangeNotifier {
         ? 'Running'
         : model.downloaded
         ? 'Downloaded'
-        : 'Suggested';
+        : 'Not downloaded';
   }
 
   /// The inline status word for a list row: a short word with no progress
   /// percentage (the percentage lives in the pane/detail). Operation and pending
   /// states map to their bare label so the row never repeats the "42%".
-  String localStatusWord(LocalModel model, {ModelManagerController? controller}) {
+  String localStatusWord(
+    LocalModel model, {
+    ModelManagerController? controller,
+  }) {
     final owner = controller ?? manager;
     final operation = owner.operationFor(model);
     if (operation?.active == true) return operation!.label;
@@ -391,7 +421,25 @@ class ModelSearchCatalog extends ChangeNotifier {
         ? 'Running'
         : model.downloaded
         ? 'Downloaded'
-        : 'Suggested';
+        : 'Not downloaded';
+  }
+
+  /// The downloads' heading: the machine they are for and its memory, `Get for this Mac · 64 GB`.
+  /// Downloads for more than one machine are headed plainly; each row's preview names its machine.
+  String get catalogHeading {
+    final owners = {
+      for (final entry in entries.values)
+        if (entry.section == ModelSearchSection.catalog)
+          entry.controller ?? manager,
+    };
+    if (owners.length != 1) return ModelSearchSection.catalog.label;
+    final owner = owners.single;
+    final machine = owner.machine;
+    final memory = owner.memoryBytes;
+    return [
+      'Get for ${machine == null || machine.isLocalMachine ? thisComputerName() : machine.machine.displayName}',
+      if (memory != null) gigabytesLabel(memory),
+    ].join(' · ');
   }
 
   @override
@@ -406,3 +454,14 @@ class ModelSearchCatalog extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// Bytes as a person reads a model's size: `2.7 GB` under ten, `27 GB` above.
+String gigabytesLabel(double bytes) {
+  final gb = bytes / (1024 * 1024 * 1024);
+  return gb < 9.95 ? '${gb.toStringAsFixed(1)} GB' : '${gb.round()} GB';
+}
+
+/// This computer as its owner calls it: `this Mac` on a Mac, `this computer` on Linux.
+String thisComputerName() => defaultTargetPlatform == TargetPlatform.macOS
+    ? 'this Mac'
+    : 'this computer';

@@ -4,7 +4,7 @@ import type { AuthSessionManager } from '../lib/authSession.js'
 import type { Frame, LocalClientSink } from '../backendSocket.js'
 import type { RelaySession } from '../lib/remoteRelay.js'
 import { recipientHandshake, type ObserverCipher } from './crypto.js'
-import { watchSocketLiveness } from '../lib/wsLiveness.js'
+import { BACKEND_IDLE_DEADLINE_MS, watchSocketLiveness } from '../lib/wsLiveness.js'
 
 export interface SharedHarnessReference {
   id: string; agentId: string; name: string; engine: string | null; ownerPublicKey: string; expiresAt: string
@@ -48,7 +48,7 @@ export class HarnessShareRelay {
           if (!settled) reject(new Error(reason.toString() || 'The owner’s machine is offline.'))
           if (!detached) onClosed(code === 4403 ? 4403 : 1012, reason.toString() || 'Owner disconnected')
         })
-        ws.on('open', () => { heartbeat = watchSocketLiveness(ws) })
+        ws.on('open', () => { heartbeat = watchSocketLiveness(ws, { peerGivesUpAfterMs: BACKEND_IDLE_DEADLINE_MS }) })
         ws.on('message', raw => {
           try {
             const frame = JSON.parse(raw.toString()) as { type: string; payload: Record<string, unknown> }

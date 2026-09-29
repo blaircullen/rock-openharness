@@ -305,8 +305,8 @@ class _TaskPaletteState extends State<_TaskPalette> {
       setState(() {
         _stage = _Stage.empty;
         _note = widget.notifier.viewer == null
-            ? 'There is no agent on this computer to send that to.'
-            : 'There is no agent on the connected machine to send that to.';
+            ? 'There is no harness on this computer to send that to.'
+            : 'There is no harness on the connected machine to send that to.';
       });
       return;
     }
@@ -732,7 +732,7 @@ class _TaskPaletteState extends State<_TaskPalette> {
                 if (weighed > 0) ...[
                   const TextSpan(text: 'Weighed '),
                   TextSpan(
-                    text: '$weighed agent${weighed == 1 ? '' : 's'}',
+                    text: '$weighed ${weighed == 1 ? 'harness' : 'harnesses'}',
                     style: mark,
                   ),
                   if (machines > 1) ...[

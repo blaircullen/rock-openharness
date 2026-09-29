@@ -342,10 +342,10 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
   Widget _home() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Text('Connect the agents already doing your work.', style: style),
+      Text('Connect the harnesses already doing your work.', style: style),
       _gap(),
       Text(
-        'Give each teammate a role. Questions and answers travel between their existing sessions, across engines and machines.',
+        'Give each teammate a role. Questions and answers travel between their existing harnesses, across engines and machines.',
         style: faint,
       ),
       _gap(),
@@ -372,7 +372,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
         child: model.loading
             ? _loadingRows()
             : model.teams.isEmpty
-            ? Text('No teams yet. Start with two sessions.', style: faint)
+            ? Text('No teams yet. Start with two harnesses.', style: faint)
             : ListView(
                 children: [
                   for (final team in model.teams)
@@ -436,12 +436,12 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
         _gap(.5),
         _field(
           _search,
-          'Find a session',
+          'Find a harness',
           key: const Key('team-search'),
           changed: (_) => setState(() {}),
         ),
         Text(
-          '${model.newMembers.length} selected · Connect introduces the team to these sessions.',
+          '${model.newMembers.length} selected · Connect introduces the team to these harnesses.',
           style: faint,
         ),
         _gap(),
@@ -450,7 +450,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
             key: const Key('team-candidates'),
             children: [
               if (candidates.isEmpty)
-                Text('No matching agent sessions.', style: faint),
+                Text('No matching harnesses.', style: faint),
               for (final candidate in candidates) ...[
                 _line(
                   '${model.newMembers.containsKey(candidate.key) ? '[x]' : '[ ]'} ${candidate.name}',
@@ -546,7 +546,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          model.isChannel ? 'Agents in this swarm' : 'Teammates',
+          model.isChannel ? 'Harnesses in this swarm' : 'Teammates',
           style: faint,
         ),
         _gap(),
@@ -585,7 +585,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
           ),
           _gap(),
           _action(
-            'Open session',
+            'Open harness',
             () => widget.onOpen(
               selected['machineId'] as String,
               selected['agentId'] as String,
@@ -645,8 +645,8 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
       context,
       builder: (context) => _TeamChoice(
         title: candidates.isEmpty
-            ? 'No additional sessions available'
-            : 'Connect an existing session',
+            ? 'No additional harnesses available'
+            : 'Connect an existing harness',
         choices: [
           for (final c in candidates)
             (
@@ -717,7 +717,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
                     ),
                     if (!adding)
                       _action(
-                        'Open session',
+                        'Open harness',
                         () => Navigator.pop(context, 'open'),
                       ),
                     if (!adding &&
@@ -972,7 +972,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
                             ),
                             _gap(),
                             Text(
-                              'This tab is your swarm. Add another agent pane to include it.',
+                              'Add a harness to this swarm to include its agent.',
                               style: faint,
                             ),
                             for (final instruction in teamRows(
@@ -1062,7 +1062,12 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
         );
         cell = terminalCellSizeOf(context);
         foreground = theme.foreground;
-        muted = foreground.withValues(alpha: .6);
+        // Read off the scheme's own ground, not the app palette's: Tango stays
+        // dark under a light palette. Near-black at .6 on a light ground is
+        // 3.9:1, so a light scheme takes .7 (≥5.4:1); a dark one keeps .6.
+        muted = foreground.withValues(
+          alpha: theme.background.computeLuminance() > .5 ? .7 : .6,
+        );
         selection = theme.selection;
         final title = _creating
             ? 'Connect a team'
@@ -1114,7 +1119,7 @@ class _TeamWorkspaceState extends State<TeamWorkspace> {
                                   : () => unawaited(model.select(null)),
                             ),
                           Text(
-                            '${model.isChannel ? 'Swarm conversation · ' : ''}${model.members.where((m) => m['enabled'] != false).length} agents · ${model.isChannel ? 'This tab only · ' : ''}${model.team?['state'] ?? 'Connecting'}',
+                            '${model.isChannel ? 'Swarm conversation · ' : ''}${model.members.where((m) => m['enabled'] != false).length} harnesses · ${model.isChannel ? 'This swarm only · ' : ''}${model.team?['state'] ?? 'Connecting'}',
                             style: faint,
                           ),
                           if (model.team?['state'] != 'archived')

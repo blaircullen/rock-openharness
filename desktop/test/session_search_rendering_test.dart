@@ -295,7 +295,7 @@ void main() {
         find.textContaining('answer 5', findRichText: true),
         findsOneWidget,
       );
-      expect(find.text('Start of session'), findsOneWidget);
+      expect(find.text('Start of conversation'), findsOneWidget);
 
       app.dispose();
       await tester.pumpWidget(const SizedBox());

@@ -1030,7 +1030,7 @@ void main() {
         'state': 'failed',
         'failure': {
           'code': 'AGENT_BUSY',
-          'detail': 'Another operation is changing this agent. Wait for it to finish, then retry.',
+          'detail': 'Another operation is changing this harness. Wait for it to finish, then retry.',
         },
       });
       await tester.pumpAndSettle();

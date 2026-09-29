@@ -73,103 +73,121 @@ void main() {
     app.dispose();
   });
 
-  test(
-    'four sections separate installed and shared models from downloads',
-    () async {
-      final usage = _WithSubscriptions();
-      final grouped = ModelSearchCatalog(
-        app.modelManager,
-        usage,
-        pollHosts: false,
+  test('sections separate your models from downloads, and fold the catalog past five', () async {
+    final usage = _WithSubscriptions();
+    final grouped = ModelSearchCatalog(
+      app.modelManager,
+      usage,
+      pollHosts: false,
+    );
+    final search = SwarmSearchController(
+      app,
+      const [],
+      models: grouped,
+      offersCreate: true,
+      adding: true,
+    )..setQuery(':');
+    try {
+      app.localInventory = {
+        'memoryBytes': 64 * 1024 * 1024 * 1024,
+        'models': [
+          for (final letter in ['A', 'B', 'C', 'D', 'E', 'F', 'G'])
+            {'id': 'catalog-$letter', 'name': '${letter * 3} catalog'},
+          {
+            'id': 'installed',
+            'name': 'ZZZ installed',
+            'state': 'downloaded',
+            'canStart': true,
+          },
+        ],
+      };
+      app.inventory = const GridModels(
+        gridName: 'home',
+        models: [],
+        grids: [
+          GridSection(
+            name: 'Team',
+            own: false,
+            models: [GridModel(id: 'Shared Qwen', node: 'team.lan')],
+          ),
+        ],
       );
-      final search = SwarmSearchController(
-        app,
-        const [],
-        models: grouped,
-        offersCreate: true,
-        adding: true,
-      )..setQuery(':');
-      try {
-        app.localInventory = {
-          'models': [
-            {'id': 'available', 'name': 'AAA catalog'},
-            {
-              'id': 'installed',
-              'name': 'ZZZ installed',
-              'state': 'downloaded',
-              'canStart': true,
-            },
-          ],
-        };
-        app.inventory = const GridModels(
-          gridName: 'home',
-          models: [],
-          grids: [
-            GridSection(
-              name: 'Team',
-              own: false,
-              models: [GridModel(id: 'Shared Qwen', node: 'team.lan')],
-            ),
-          ],
-        );
-        app.modelManager.apis.connections = [
-          const ApiConnection({'id': 'custom', 'name': 'Custom API'}),
-        ];
-        await app.modelManager.refresh();
-        expect(search.rows.map((row) => row.title), [
-          'OpenAI',
-          'Custom API',
-          '[ Add ]',
+      app.modelManager.apis.connections = [
+        const ApiConnection({'id': 'custom', 'name': 'Custom API'}),
+      ];
+      await app.modelManager.refresh();
+      expect(search.rows.map((row) => row.title), [
+        'OpenAI',
+        'Custom API',
+        '[ Add ]',
+        'ZZZ installed',
+        'AAA catalog',
+        'BBB catalog',
+        'CCC catalog',
+        'DDD catalog',
+        'EEE catalog',
+        '[ More models (2) ]',
+        'Shared Qwen · team.lan',
+      ]);
+      expect(search.rows.map(search.modelSection), [
+        ModelSearchSection.subscriptions,
+        ModelSearchSection.apis,
+        ModelSearchSection.apis,
+        ModelSearchSection.local,
+        for (var i = 0; i < 6; i++) ModelSearchSection.catalog,
+        ModelSearchSection.shared,
+      ]);
+      // The downloads are headed with the machine they are for, and its memory.
+      expect(grouped.catalogHeading, 'Get for ${thisComputerName()} · 64 GB');
+      expect(
+        search.modelSectionLabel(ModelSearchSection.catalog),
+        grouped.catalogHeading,
+      );
+      expect(search.modelSectionLabel(ModelSearchSection.local), 'Your models');
+      search.move(
+        search.rows.indexWhere(search.isModelDownloadsRow) - search.cursor,
+      );
+      expect(search.actionLabel(search.selected), 'More models');
+      expect(search.submit(), isNull);
+      expect(search.modelDownloadsVisible, isTrue);
+      expect(search.rows.map((row) => row.title), [
+        'OpenAI',
+        'Custom API',
+        '[ Add ]',
+        'ZZZ installed',
+        for (final letter in ['A', 'B', 'C', 'D', 'E', 'F', 'G'])
+          '${letter * 3} catalog',
+        '[ Show fewer ]',
+        'Shared Qwen · team.lan',
+      ]);
+      expect(search.selected!.title, 'AAA catalog');
+      expect(search.modelRowAction(search.selected!), isNull);
+      search.move(
+        search.rows.indexWhere(search.isModelDownloadsRow) - search.cursor,
+      );
+      expect(search.actionLabel(search.selected), 'Show fewer');
+      search.submit();
+      expect(search.modelDownloadsVisible, isFalse);
+      // The top five stay listed with the rest folded away again.
+      expect(search.rows.any((row) => row.title == 'EEE catalog'), isTrue);
+      expect(search.rows.any((row) => row.title == 'FFF catalog'), isFalse);
+      // A search reaches every catalog model, folded or not.
+      search.setQuery(':local');
+      expect(
+        search.rows.where((row) => !row.isCreate).map((row) => row.title),
+        [
           'ZZZ installed',
-          'AAA catalog',
-          '[ Get models ]',
-          'Shared Qwen · team.lan',
-        ]);
-        expect(search.rows.map(search.modelSection), [
-          ModelSearchSection.subscriptions,
-          ModelSearchSection.apis,
-          ModelSearchSection.apis,
-          ModelSearchSection.local,
-          ModelSearchSection.local,
-          ModelSearchSection.local,
-          ModelSearchSection.shared,
-        ]);
-        search.move(
-          search.rows.indexWhere(search.isModelDownloadsRow) - search.cursor,
-        );
-        expect(search.submit(), isNull);
-        expect(search.modelDownloadsVisible, isTrue);
-        expect(search.rows.map((row) => row.title), [
-          'OpenAI',
-          'Custom API',
-          '[ Add ]',
-          'ZZZ installed',
-          'AAA catalog',
-          '[ Hide catalog ]',
-          'Shared Qwen · team.lan',
-        ]);
-        expect(search.selected!.title, 'AAA catalog');
-        expect(search.modelRowAction(search.selected!), isNull);
-        search.move(
-          search.rows.indexWhere(search.isModelDownloadsRow) - search.cursor,
-        );
-        search.submit();
-        expect(search.modelDownloadsVisible, isFalse);
-        // The top-5 catalog model stays visible even after hiding the catalog.
-        expect(search.rows.any((row) => row.title == 'AAA catalog'), isTrue);
-        search.setQuery(':Local AI');
-        expect(
-          search.rows.where((row) => !row.isCreate).map((row) => row.title),
-          ['ZZZ installed', 'AAA catalog'],
-        );
-        expect(app.actions, isEmpty);
-      } finally {
-        search.dispose();
-        grouped.dispose();
-        usage.dispose();
-      }
-    },
-  );
+          for (final letter in ['A', 'B', 'C', 'D', 'E', 'F', 'G'])
+            '${letter * 3} catalog',
+        ],
+      );
+      expect(app.actions, isEmpty);
+    } finally {
+      search.dispose();
+      grouped.dispose();
+      usage.dispose();
+    }
+  });
 
   test(
     'own models precede shared models even without local inventory',

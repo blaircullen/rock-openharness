@@ -95,8 +95,21 @@ its consumer is now the `harness` installer rather than this app.
 
 ### One Flutter UI, native and browser transports
 
-`flutter build web` builds the same `lib/main.dart` and workspace as desktop.
-Do not fork screens or create a second frontend. `kViewerMode` is true on the web:
+`lib/main.dart` serves both targets; its signed-in workspace is a conditional import
+(`desktop_workspace.dart`, or `web/web_entry.dart` when `dart.library.js_interop`), so the
+web build **is mouse-first** (product decision, 2026-09-29): every action
+desktop keeps in native menus or chords must be clickable. Keys keep working but are not
+advertised. Browser-only UI lives in `lib/web/` and is never imported by desktop code;
+it plugs into shared screens through additive seams whose default is today's desktop
+behavior (e.g. `SwarmScreen.chrome` / `WorkspaceChrome` in `state/workspace_chrome.dart`,
+which runs the same `_commands` table keys use, adds a bar over the picker, and turns off
+`KeyHints` — `widgets/key_hints.dart`, absent means hints shown). Below
+`WorkspaceChrome.compactBelow` (web: 720px, a phone) the workspace goes compact: a tab
+switcher replaces the tab row and `PaneGrid.soloFocused` draws only the focused harness —
+without touching zoom or the synced layout, so the same desk keeps its grid on a computer. Do not change desktop behavior for the
+web, and do not copy shared screens into `lib/web/` — add a seam instead.
+
+`kViewerMode` is true on the web:
 the browser owns its OAuth session, peer links, and end-to-end relay encryption.
 `viewer/browser_login.dart` validates the same-tab callback against the backend's
 PKCE transaction; conditional adapters handle storage and native-only services.
@@ -113,7 +126,7 @@ The owner daemon stores comments and enforces link/invitation access on every
 request. Reuse `ShareHarnessDialog` and `HarnessComments` for both app targets.
 See [README.md](README.md#web-development) for origin setup, browser storage
 lifetime, capability limits, and Chrome checks. Browser tests must set
-`--dart-define=HARNESS_TEST=true` so no production pollers or analytics run.
+`--dart-define=HARNESS_TEST=true` so no production pollers run.
 
 ### Native desktop talks to the local `harness` CLI
 
@@ -363,8 +376,8 @@ its headless debug timings do not establish native display or network latency.
   than assuming, because a confident "5h" beside a real percentage reads as measured.
   `loading` is false **before** `start()` as well as after the first answer — a controller nobody
   started is not waiting for anything, and a skeleton for it would promise an answer never coming.
-  That is also what keeps `flutter test` honest: `kUnderTest` (`core/test_run.dart`, shared with
-  `AnalyticsConfig`) stops the poll auto-starting, since a `Timer.periodic` is a `pumpAndSettle` that
+  That is also what keeps `flutter test` honest: `kUnderTest` (`core/test_run.dart`) stops the
+  poll auto-starting, since a `Timer.periodic` is a `pumpAndSettle` that
   never settles and these sources would otherwise shell out to `security` and open real sockets.
 - **The token ledger is the OTHER usage feature, and the two must not be merged** (`lib/usage/ledger/`,
   Settings ▸ Usage in `settings/sections/usage_section.dart` + `usage_panels.dart`). The Models menu's
@@ -427,10 +440,10 @@ its headless debug timings do not establish native display or network latency.
   (`lib/stats/harness_stats.dart`, drawn by `StatsSummaryCards`). Ported from Orca's
   `src/main/stats/`: agents spawned, time agents worked, and a "Tracking since" line. These are this
   app's own events, so unlike the ledger there is no permission to ask and no switch — an app may
-  count what it did. `harnessStats` is a singleton like `analytics`, loaded by
+  count what it did. `harnessStats` is a singleton like `appLog`, loaded by
   `loadPersistedSettings` (not for the first frame — because the counters start moving as soon as an
   agent does, and a load landing after the first `onAgentSpawned` would overwrite it) and flushed by
-  `AnalyticsLifecycle.didRequestAppExit`, which is the ONLY place a turn still running at quit gets
+  `StatsLifecycle.didRequestAppExit` (`stats/stats_lifecycle.dart`), which is the ONLY place a turn still running at quit gets
   its time counted.
   Three hooks, all in `AppNotifier`: `createAgent` (**not** the `agent_created` push, which also
   fires for agents another client made on the same machine), the `turn_started` case (**not**
@@ -478,59 +491,6 @@ its headless debug timings do not establish native display or network latency.
   `SingleChildScrollView` the incoming width is unbounded, so `CrossAxisAlignment.stretch` asks for
   an infinite row and the layout throws; `_sessionTableWidth` sums the columns, which is the only
   honest width it has.
-- **Behavioural analytics is a PORT of Grid's, not a second design** (`lib/analytics/`, copied from
-  `autonomous-grid-app/lib/infrastructure/analytics/`). It reports to **Autonomous Analytics**, the
-  stream the website and Grid already feed, so one person's path across the three products is one
-  funnel; `AnalyticsConfig.category` (`harness-desktop`) is what keeps them apart inside it. Not to
-  be confused with the CLI's `harness analytics`, which is a different product entirely — aggregate
-  usage metering uploaded to the Harness backend. ⚠️ **It reports under GRID's write key**, not one
-  of its own: `_defaultWriteKey` is the same constant `autonomous-grid-app` ships, so both apps
-  append into one analytics project and are separable **only by `category`**, not at the source —
-  a quota, a retention rule or a rotated key set on that project lands on both at once
-  (**TODO(BE)**: a Harness Desktop key is a one-constant change here). ⚠️ **With the Grid project
-  killed (2026-09-11), that shared project is the one to watch**: if it is wound down or its key
-  rotated, this app's analytics go silent with it. `--dart-define=HARNESS_ANALYTICS_KEY=…`
-  overrides it for a dev build. It still mutes for three other reasons — `HARNESS_ANALYTICS_DISABLED`,
-  a test run, and an opt-out (`{"enabled": false}` in `~/.harness/desktop-app/analytics.json`) —
-  checked in that order so `flutter test` never reads a real Harness home. The sink is a **singleton** (`analytics`), like
-  `themeModeStore`: the call sites are `main`, `AppNotifier`, a settings pane and a menu inside a
-  pane header, and most were handed a notifier rather than a `Ref`. Every event name is written down
-  **once**, in `analytics_events.dart` — two call sites naming one action differently is what makes
-  a stream unqueryable — and params are product facts only: a short code, an option, a count, an id.
-  **Never** a prompt, terminal output, an agent or machine name, or a path. One event is
-  deliberately not where you would look for it: `app_opened` is sent by `AppNotifier` when
-  bootstrap resolves (a first-frame event would report every launch as signed out). **The agent funnel is
-  three events, one per step, because the interesting numbers are the DROPS between them**:
-  `new_agent_opened` is sent by `showNewAgentDialog` itself rather than by its four callers, so a
-  fifth door cannot forget to report (its `source` is `required`, not defaulted); `agent_created`
-  is sent by the dialog once Create succeeds, carrying only the engine and the bypass flag;
-  `app_first_message` rides the CLI's `turn_started` rather than the
-  composer, so a message typed straight into the terminal counts, and it fires **once per signed-in
-  session, not per agent** (`_awaitingFirstMessage`) — the question is how long somebody sits
-  logged in before talking to anything at all, so it carries the wait and `from` (`sign_in` against
-  `launch`, two populations that must not be averaged together) and deliberately names no agent,
-  engine or machine. Sign-out clears the clock: a session that ended without a message reports
-  nothing, and its absence is the finding. `app_closed` hooks only
-  `didRequestAppExit` — intercepting the window's close button needs `setPreventClose(true)`, and a
-  bug on that path leaves a window nobody can close.
-  **Settings ▸ Tracking is where that stream is read back** (`analytics/analytics_log.dart`,
-  `settings/sections/tracking_*.dart`, ported from Grid's Tracking tab), and it answers the
-  question analytics always raises and normally cannot: *did that event actually leave, and what
-  was in it?* — an event never sent, sent with a missing field, or refused by the server looks
-  exactly like one that landed, because the app is silent either way by design. `QueuedAnalytics`
-  reports each row's life to an `AnalyticsLog` (`queued → attempted → settled`), so a retry is
-  **one row with two attempts** rather than two rows, and the dialog shows the payload *as sent*
-  beside the params the call site passed — the gap between those two is the bug it exists to find.
-  Gated by `kDebugSurfaceEnabled` like Settings ▸ Debug, which now hides two rail rows rather than
-  one (`_kDeveloperSections` in `settings_section.dart` names both, once). **The muted case is the
-  one that matters**: a build can send nothing for four separate reasons, and a Tracking screen that
-  were blank for any of them would be the exact trap it exists to spring — hence `MutedAnalytics`,
-  which records every event as `dropped` with the reason, and a header card
-  that says `Off` and why in a sentence. A release build has no such screen and gets `NoopAnalytics`
-  and a `NoopAnalyticsLog`, so nothing is retained for a surface that is not there. The buffer is
-  in memory and never written to disk — a stream that measures the app must not become a second
-  thing the app writes on every click — which is also why recording is right even for a user who
-  opted out: their choice is about what we *send*, and this sends nothing.
 - Settings is a **screen**, not a dialog (`lib/settings/`): `showSettingsScreen` pushes a faded route
   whose rail lists `settingsGroups` from `settings_section.dart` and whose pane is one widget per
   `SettingsSection` (`sections/`). Adding a setting means adding an enum value, a group entry and a

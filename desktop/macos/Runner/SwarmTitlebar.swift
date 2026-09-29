@@ -151,7 +151,7 @@ final class SwarmTitlebar: NSObject, NSMenuItemValidation, NSMenuDelegate {
   private func setKeymap(_ map: HarnessNativeKeymap) {
     keymap = map
     // Mouse controls teach the effective shortcuts, including user remaps.
-    strip.newButton.toolTip = "New Tab " + (map.hint(for: "swarm.new", context: "workspace") ?? "")
+    strip.newButton.toolTip = "New Swarm " + (map.hint(for: "swarm.new", context: "workspace") ?? "")
     if let main = NSApp.mainMenu, let window {
       let menu = main as? HarnessKeymapMenu ?? HarnessKeymapMenu.replacing(main)
       if NSApp.mainMenu !== menu { NSApp.mainMenu = menu }
@@ -307,14 +307,14 @@ final class SwarmTitlebar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     add(file, "Restart Harness", "e", "restartAgent", [.command, .shift])
     add(file, "Share Harness", "s", "shareAgent", [.command, .shift])
     file.addItem(.separator())
-    add(file, "New Tab", "t", "new")
-    add(file, "Rename Tab", "r", "renameActive", [.command, .shift])
-    add(file, "Close Tab", "w", "closeActive")
+    add(file, "New Swarm", "t", "new")
+    add(file, "Rename Swarm", "r", "renameActive", [.command, .shift])
+    add(file, "Close Swarm", "w", "closeActive")
     file.addItem(.separator())
     add(file, "Split Right", "r", "splitRight")
     add(file, "Split Down", "d", "splitDown")
     add(file, "Zoom Pane", "", "zoomPane")
-    add(file, "Move Pane to Tab", "m", "movePaneToTab", [.command, .shift])
+    add(file, "Move Pane to Swarm", "m", "movePaneToTab", [.command, .shift])
     add(file, "Close Pane", "w", "closePane", [.command, .shift])
     install(file, at: 1)
 
@@ -397,7 +397,7 @@ final class SwarmTitlebar: NSObject, NSMenuItemValidation, NSMenuDelegate {
     command("Back", "[", "historyBack")
     command("Forward", "]", "historyForward")
     // No default chord: ⌘⇧T is New Terminal now. A person can give this one in keybindings.jsonc.
-    let reopen = NSMenuItem(title: "Reopen Closed Tab or Pane", action: #selector(menuAction(_:)), keyEquivalent: "")
+    let reopen = NSMenuItem(title: "Reopen Closed Swarm or Pane", action: #selector(menuAction(_:)), keyEquivalent: "")
     reopen.target = self
     reopen.representedObject = "reopen"
     reopen.identifier = NSUserInterfaceItemIdentifier(HarnessKeymapMenu.actionPrefix + "reopen")
@@ -446,7 +446,7 @@ final class SwarmTitlebar: NSObject, NSMenuItemValidation, NSMenuDelegate {
       historyMenu.addItem(item)
     }
     if entries.isEmpty {
-      let item = NSMenuItem(title: closed ? "No Recently Closed Tabs or Panes" : "No Recent Visits", action: nil, keyEquivalent: "")
+      let item = NSMenuItem(title: closed ? "No Recently Closed Swarms or Panes" : "No Recent Visits", action: nil, keyEquivalent: "")
       item.isEnabled = false
       historyMenu.addItem(item)
     }
@@ -851,6 +851,10 @@ private struct SwarmNativePalette: Equatable {
   let workspace: NSColor
   let search: NSColor
   let accent: NSColor
+  let foreground: NSColor
+  /// A dark palette. AppKit's own surfaces follow `NSApp.appearance`, which
+  /// [SwarmTitlebarStrip.updatePalette] sets from this.
+  let dark: Bool
 
   init(_ values: [String: Any] = [:]) {
     func color(_ name: String, _ fallback: UInt32) -> NSColor {
@@ -864,6 +868,8 @@ private struct SwarmNativePalette: Equatable {
     workspace = color("workspace", 0xff282828)
     search = color("search", 0xff2c2c2c)
     accent = color("accent", 0xffbdcbdc)
+    foreground = color("foreground", 0xfff5f5f5)
+    dark = (values["dark"] as? Int64).map { $0 != 0 } ?? true
   }
 }
 
@@ -906,12 +912,14 @@ private class SwarmIconButton: NSButton {
     return true
   }
   override func draw(_ dirtyRect: NSRect) {
+    // `labelColor`, not white: it is white under a dark palette and black under
+    // a light one (`NSApp.appearance`, set in `updatePalette`).
     if state == .on && isEnabled {
-      NSColor.white.withAlphaComponent(0.08).setFill()
+      NSColor.labelColor.withAlphaComponent(0.08).setFill()
       NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7).fill()
     }
     if showsHoverFill && isEnabled && (hovered || hasKeyboardFocus || isHighlighted) {
-      NSColor.white.withAlphaComponent(isHighlighted ? 0.10 : 0.05).setFill()
+      NSColor.labelColor.withAlphaComponent(isHighlighted ? 0.10 : 0.05).setFill()
       NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7).fill()
     }
     super.draw(dirtyRect)
@@ -1620,9 +1628,9 @@ private final class SwarmTabStrip: NSView {
     newButton.target = self
     newButton.action = #selector(newSwarm)
     addSubview(newButton)
-    newButton.setAccessibilityLabel("New Tab")
+    newButton.setAccessibilityLabel("New Swarm")
     newButton.isEnabled = false
-    newButton.toolTip = "New Tab ⌘T"
+    newButton.toolTip = "New Swarm ⌘T"
     newButton.image = nil
     newButton.title = "+"
     newButton.imagePosition = .noImage
@@ -1772,6 +1780,10 @@ private final class SwarmTabStrip: NSView {
     let nextPalette = SwarmNativePalette(values)
     guard nextPalette != palette else { return }
     palette = nextPalette
+    // Menus, the About panel, the traffic lights and every system color below
+    // (`labelColor` in the hover wells) follow the app's appearance, not the
+    // Flutter theme, so a light palette has to say so here.
+    NSApp.appearance = NSAppearance(named: palette.dark ? .darkAqua : .aqua)
     storeButton.palette = palette
     newButton.contentTintColor = palette.accent
     for tab in tabs { tab.palette = palette }
@@ -1853,7 +1865,7 @@ private final class SwarmTabStrip: NSView {
       guard let id = row["id"] as? String else { return nil }
       let tab = previous[id] ?? SwarmTabButton(id: id)
       tab.palette = palette
-      tab.name = row["name"] as? String ?? "New Tab"
+      tab.name = row["name"] as? String ?? "New Swarm"
       tab.displayLabel = row["label"] as? String ?? tab.name
       tab.labelFont = barFont
       tab.foreground = terminalForeground
@@ -2148,8 +2160,8 @@ private final class SwarmTabButton: NSView, NSDraggingSource, NSMenuItemValidati
     didSet { if palette != oldValue { needsDisplay = true } }
   }
   let swarmId: String
-  var name = "New Tab" { didSet { if name != oldValue { invalidateLabel(); updateAccessibility() } } }
-  var displayLabel = "New Tab" { didSet { if displayLabel != oldValue { invalidateLabel() } } }
+  var name = "New Swarm" { didSet { if name != oldValue { invalidateLabel(); updateAccessibility() } } }
+  var displayLabel = "New Swarm" { didSet { if displayLabel != oldValue { invalidateLabel() } } }
   var foreground = NSColor(white: 0.85, alpha: 1) { didSet { if foreground != oldValue { invalidateLabel() } } }
   private var cellWidth: CGFloat { ceil(("m" as NSString).size(withAttributes: [.font: labelFont]).width) }
   var minimumWidth: CGFloat {
@@ -2229,7 +2241,7 @@ private final class SwarmTabButton: NSView, NSDraggingSource, NSMenuItemValidati
     selectButton.action = #selector(selectSwarm)
     addSubview(selectButton)
     let menu = NSMenu()
-    for (title, action) in [("Rename Tab…", #selector(renameSwarm)), ("Close Tab", #selector(closeSwarm))] {
+    for (title, action) in [("Rename Swarm…", #selector(renameSwarm)), ("Close Swarm", #selector(closeSwarm))] {
       let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
       item.target = self
       menu.addItem(item)
@@ -2342,7 +2354,7 @@ private final class SwarmTabButton: NSView, NSDraggingSource, NSMenuItemValidati
     selectButton.setAccessibilityLabel("Select \(name)")
     selectButton.setAccessibilityValue(selected ? "Selected" : "")
     let help = [activityLabel,
-      keyboardFocus ? "Keyboard is on the tabs. Press Return to type in this tab." : nil].compactMap { $0 }
+      keyboardFocus ? "Keyboard is on the swarms. Press Return to type in this swarm." : nil].compactMap { $0 }
     selectButton.setAccessibilityHelp(help.isEmpty ? nil : help.joined(separator: ". "))
   }
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { actionsEnabled }

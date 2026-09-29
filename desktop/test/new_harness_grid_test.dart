@@ -179,7 +179,7 @@ void main() {
           const WsRequestFailure(
             responseType: 'agent_create_result',
             code: 'INVALID_ENGINE',
-            detail: 'This agent is unavailable.',
+            detail: 'This harness is unavailable.',
           ),
         );
         await tester.pumpAndSettle();

@@ -152,7 +152,7 @@ class _ExampleBlockState extends State<_ExampleBlock> {
                       example: example,
                     ),
                     icon: const Icon(LucideIcons.play300, size: 17),
-                    label: const Text('Watch real session'),
+                    label: const Text('Watch recorded run'),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(0, 46),
                       padding: const EdgeInsets.symmetric(horizontal: 20),

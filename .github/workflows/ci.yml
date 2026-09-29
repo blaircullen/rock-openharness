@@ -149,6 +149,11 @@ jobs:
           E2E_PORT: 19297
           HN_SOCKET_NAME: hn-ci-e2e
         run: bash tests/e2e.sh
+      - name: Browser viewer commands and SSH handoff
+        env:
+          HN_VIEWER_TEST_BINARY: ${{ github.workspace }}/tui/target/${{ matrix.target }}/release/harness-tui
+          HN_VIEWER_TEST_PORT: 19671
+        run: python3 -u tests/viewer.py
       - name: Persistent local shell lifecycle
         env:
           HN_LOCAL_TEST_BINARY: ${{ github.workspace }}/tui/target/${{ matrix.target }}/release/harness-tui

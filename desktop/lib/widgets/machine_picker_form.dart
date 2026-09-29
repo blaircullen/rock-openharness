@@ -530,7 +530,7 @@ class MachinePickerFormState extends State<MachinePickerForm> {
           child: Text(
             '$label >',
             style: terminalContentStyle(
-              color: theme.foreground.withValues(alpha: .54),
+              color: theme.muted,
             ),
           ),
         ),
@@ -683,7 +683,7 @@ class MachinePickerFormState extends State<MachinePickerForm> {
                 style: terminalContentStyle(
                   color: !_busy && _error
                       ? theme.yellow
-                      : theme.foreground.withValues(alpha: .54),
+                      : theme.muted,
                 ),
               ),
             ),
@@ -750,7 +750,7 @@ class MachinePickerFormState extends State<MachinePickerForm> {
                   if (hint('picker.cancel') case final escape?) '$escape back',
                 ].join('  ·  '),
                 style: terminalContentStyle(
-                  color: theme.foreground.withValues(alpha: .54),
+                  color: theme.muted,
                 ),
               ),
             ),

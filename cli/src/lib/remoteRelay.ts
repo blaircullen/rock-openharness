@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { WebSocket, type RawData } from 'ws'
-import { watchSocketLiveness, type LivenessWatch } from './wsLiveness.js'
+import { BACKEND_IDLE_DEADLINE_MS, watchSocketLiveness, type LivenessWatch } from './wsLiveness.js'
 import type { Frame, LocalClientSink } from '../backendSocket.js'
 import type { AuthSessionManager } from './authSession.js'
 import { b64d, type Identity } from './e2ee/core.js'
@@ -655,6 +655,8 @@ export class RemoteRelayPool {
     })
     entry.heartbeat = watchSocketLiveness(ws, {
       onIdle: (idleMs) => console.log(`[relay] ${machineId.slice(0, 8)} no traffic for ${Math.round(idleMs / 1000)}s — terminating`),
+      // The relay socket ends at the backend, which hung up on it while we slept.
+      peerGivesUpAfterMs: BACKEND_IDLE_DEADLINE_MS,
       // Piggybacked sweep for a migration that never completed (pane closed mid-flight, responder never
       // answered, etc.) — no dedicated timer needed, this tick is frequent enough (20s) against the 30s TTL.
       onTick: () => {

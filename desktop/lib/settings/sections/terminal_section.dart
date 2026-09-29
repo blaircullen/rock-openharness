@@ -249,9 +249,9 @@ class _Screen extends StatelessWidget {
     // This sample used to borrow `AppPalette` — fine while the terminal always
     // borrowed it too, and a lie the moment a scheme of its own could be
     // chosen: a user picking Tango would have been shown Harness's ground and
-    // told that was the result. `terminalThemeFor` is the same call the real
-    // pane makes, so what is judged here is what will be rendered.
-    final theme = terminalThemeFor(grid.AppTheme.palette.value, scheme);
+    // told that was the result. `terminalScreenThemeFor` is the same call the
+    // real pane makes, so what is judged here is what will be rendered.
+    final theme = terminalScreenThemeFor(grid.AppTheme.palette.value, scheme);
     final base = style.toTextStyle(color: theme.foreground);
     final dim = style.toTextStyle(color: theme.brightBlack);
     final ok = style.toTextStyle(color: theme.green);

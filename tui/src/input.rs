@@ -848,8 +848,8 @@ pub fn run(app: &mut App, command: &str) {
         "send" => prompt(app, PromptKind::Send, "Send to harness", "What should be done?", "Harness picks the harness that fits best; you confirm.", "", false),
         "broadcast" => {
             let n = app.tab().panes().len();
-            if n == 0 { app.say("No harnesses in this tab", theme::MUTED); return }
-            prompt(app, PromptKind::Broadcast, &format!("Broadcast to {n} harness{}", if n == 1 { "" } else { "es" }), "Message", "Sent as a turn to every harness in this tab.", "", false)
+            if n == 0 { app.say("No harnesses in this swarm", theme::MUTED); return }
+            prompt(app, PromptKind::Broadcast, &format!("Broadcast to {n} harness{}", if n == 1 { "" } else { "es" }), "Message", "Sent as a turn to every harness in this swarm.", "", false)
         }
         "clone" => {
             let Some((machine, agent)) = focused_agent(app) else { app.say("This pane has no harness in it", theme::MUTED); return };
@@ -872,7 +872,7 @@ pub fn run(app: &mut App, command: &str) {
             prompt(app, PromptKind::RenameHarness { machine, agent }, "Rename Harness", "New name", "", &name, false)
         }
         "tab" => app.new_tab(),
-        "rename-tab" => { let name = app.tab().name.clone(); prompt(app, PromptKind::RenameTab, "Rename Tab", "Tab name", "", &name, false) }
+        "rename-tab" => { let name = app.tab().name.clone(); prompt(app, PromptKind::RenameTab, "Rename Swarm", "Swarm name", "", &name, false) }
         "close-tab" => { let i = app.active; app.close_tab(i) }
         "next-tab" => { let n = app.tabs.len(); let i = (app.active + 1) % n; app.select_tab(i) }
         "prev-tab" => { let n = app.tabs.len(); let i = (app.active + n - 1) % n; app.select_tab(i) }

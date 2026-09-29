@@ -1003,10 +1003,11 @@ class _TerminalPageState extends State<TerminalPage>
   /// that question, as its answer or not at all. Nothing is echoed when it lands: the words appear
   /// in the prompt, and a tap is felt. Only what went wrong is said (see [_flash]).
   Future<bool> _deliverVoice(String text) async {
+    final origin = widget.notifier.activeSwarmId;
     final session = await _sessionForInput();
     if (session == null) return false;
     if (_questionWatcher?.view != null) return _answerByVoice(session, text);
-    final sent = await session.sendComposerText(text);
+    final sent = await session.sendComposerText(text, tabId: origin);
     // After the send is acknowledged, never before: a tap felt first would be a promise.
     if (sent && mounted) HapticFeedback.lightImpact();
     return sent;
@@ -1034,7 +1035,8 @@ class _TerminalPageState extends State<TerminalPage>
   /// A voice take while the agent's question is open: it answers the question or it is not sent.
   Future<bool> _answerByVoice(TerminalSession session, String text) async {
     final view = _questionWatcher?.view;
-    if (view == null) return session.sendComposerText(text);
+    final origin = widget.notifier.activeSwarmId;
+    if (view == null) return session.sendComposerText(text, tabId: origin);
     if (!view.answerable || view.multi) {
       _flash('✗ answer on screen', error: true);
       return false;
@@ -1050,7 +1052,7 @@ class _TerminalPageState extends State<TerminalPage>
     if (match.rest case final rest?) {
       Timer(const Duration(milliseconds: 900), () {
         if (!mounted || _questionWatcher?.view != null) return;
-        unawaited(session.sendComposerText(rest));
+        unawaited(session.sendComposerText(rest, tabId: origin));
       });
     }
     return true;
@@ -1880,6 +1882,9 @@ class _TerminalPageState extends State<TerminalPage>
                                               : pane == null || session == null
                                               ? _Attaching(key: _skeletonKey)
                                               : TerminalPanel(
+                                                  tabId: widget
+                                                      .notifier
+                                                      .activeSwarmId,
                                                   key: ValueKey(pane.id),
                                                   notifier: widget.notifier,
                                                   session: session,
@@ -2787,7 +2792,7 @@ class _AttachingState extends State<_Attaching> with TickerProviderStateMixin {
     final lineHeight = fontSize * style.height;
     // Resolved exactly as [TerminalPanel] resolves it for the view underneath,
     // so the skeleton's ground and the terminal's are the same colour.
-    final ground = terminalThemeFor(
+    final ground = terminalScreenThemeFor(
       AppTheme.palette.value,
       terminalThemeStore.value,
     ).background;

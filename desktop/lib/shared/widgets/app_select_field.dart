@@ -627,7 +627,9 @@ class _AppSelectFieldState<T> extends State<AppSelectField<T>> {
                         ? widget.fillColor == null
                               ? AppSurface.recessHover
                               : Color.alphaBlend(
-                                  Colors.white.withValues(alpha: .05),
+                                  AppTheme.palette.value.foreground.withValues(
+                                    alpha: .05,
+                                  ),
                                   widget.fillColor!,
                                 )
                         : widget.fillColor ?? AppSurface.recess,

@@ -80,13 +80,21 @@ class _Notifier extends AppNotifier {
   }
 
   @override
-  Future<String?> installDsh(String machineId, String id) async {
+  Future<String?> installDsh(
+    String machineId,
+    String id, {
+    bool trustUnverified = false,
+  }) async {
     installs.add((machineId, id));
     return null;
   }
 
   @override
-  Future<String?> updateDsh(String machineId, String id) async {
+  Future<String?> updateDsh(
+    String machineId,
+    String id, {
+    bool trustUnverified = false,
+  }) async {
     updates.add((machineId, id));
     return null;
   }

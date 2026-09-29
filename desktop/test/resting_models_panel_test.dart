@@ -132,7 +132,7 @@ void main() {
       'Shared · team',
       'DeepSeek-V4-Flash',
       'scholes-60001',
-      'Select models in a session’s model picker.',
+      'Select models in a harness’s model picker.',
       'Manage models',
     ]);
   });

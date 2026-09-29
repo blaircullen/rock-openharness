@@ -243,7 +243,7 @@ class _LinkMachineScreenState extends State<LinkMachineScreen> {
                           const SizedBox(height: 4),
                           Text(
                             'Enter the remote password set on this machine.',
-                            style: boxMonoStyle(color: Colors.white70),
+                            style: boxMonoStyle(color: boxText(.70)),
                           ),
                           const SizedBox(height: 14),
                           ReadlineKeys(
@@ -278,7 +278,7 @@ class _LinkMachineScreenState extends State<LinkMachineScreen> {
                                     child: Text(
                                       'password >',
                                       style: boxMonoStyle(
-                                        color: Colors.white70,
+                                        color: boxText(.70),
                                       ),
                                     ),
                                   ),
@@ -319,7 +319,7 @@ class _LinkMachineScreenState extends State<LinkMachineScreen> {
                           Text(
                             _submitting
                                 ? 'Connecting continues if you close this prompt.'
-                                : 'Your previous agent will reconnect automatically after linking.',
+                                : 'Your previous harness will reconnect automatically after linking.',
                             style: boxMonoStyle(color: kBoxFaint),
                           ),
                           const SizedBox(height: 8),
@@ -329,7 +329,7 @@ class _LinkMachineScreenState extends State<LinkMachineScreen> {
                               key: const Key('link-troubleshooting-details'),
                               style: TextButton.styleFrom(
                                 textStyle: boxMonoStyle(),
-                                foregroundColor: Colors.white70,
+                                foregroundColor: boxText(.70),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 4,
                                 ),

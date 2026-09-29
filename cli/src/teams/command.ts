@@ -9,6 +9,7 @@ import { watchTeam } from './tui.js'
 const usage = `Harness team — connect existing agents across engines
 
   harness team list
+  harness team context --agent AGENT_ID
   harness team create --file team.json
   harness team --team ID members|get|pause|resume|archive
   harness team --team ID watch
@@ -38,7 +39,7 @@ export interface TeamArgs {
 export function parseTeamArgs(argv: readonly string[], defaults: { port: number; machineId: string }): TeamArgs {
   const values = new Map<string, string>(), args: string[] = []
   let json = false
-  const allowed = new Set(['--port', '--machine', '--team', '--member-key', '--from', '--member', '--id', '--context', '--seconds', '--ttl', '--file', '--text-file', '--parent', '--evidence'])
+  const allowed = new Set(['--port', '--machine', '--team', '--member-key', '--from', '--member', '--id', '--context', '--seconds', '--ttl', '--file', '--text-file', '--parent', '--evidence', '--agent'])
   for (let i = 0; i < argv.length; i++) {
     const value = argv[i]
     if (value === '--json') { json = true; continue }
@@ -51,10 +52,11 @@ export function parseTeamArgs(argv: readonly string[], defaults: { port: number;
   const machineId = values.get('--machine') ?? defaults.machineId
   if (!Number.isInteger(port) || port < 1 || port > 65535 || !machineId) throw new TeamError('USAGE', 'Choose the team machine with --machine and a running daemon port with --port.')
   const [action, first, ...rest] = args
-  const actions = new Set(['list', 'create', 'get', 'history', 'members', 'ask', 'reply', 'inbox', 'status', 'wait', 'watch', 'add', 'edit', 'cancel', 'pause', 'resume', 'archive'])
+  const actions = new Set(['context', 'list', 'create', 'get', 'history', 'members', 'ask', 'reply', 'inbox', 'status', 'wait', 'watch', 'add', 'edit', 'cancel', 'pause', 'resume', 'archive'])
   if (!actions.has(action)) throw new TeamError('USAGE', usage)
   const payload: Record<string, unknown> = { action: action === 'wait' ? 'status' : action === 'watch' || action === 'history' ? 'get' : action }
   if (values.has('--team')) payload.teamId = values.get('--team')
+  if (action === 'context') payload.agentId = values.get('--agent')
   if (values.has('--member-key')) payload.memberKey = values.get('--member-key')
   if (values.has('--member')) payload.memberId = values.get('--member')
   const readText = (): string => {
@@ -113,7 +115,7 @@ export async function waitForTeamAnswer(payload: Record<string, unknown>, second
 }
 
 export function formatTeamReply(reply: Record<string, unknown>): string {
-  if (Array.isArray(reply.teams)) return reply.teams.length ? reply.teams.map((t: any) => `${t.id}  ${t.name}  ${t.state}  ${t.members} teammates · ${t.pending} waiting`).join('\n') : 'No teams yet. Connect existing sessions from Team in Harness.'
+  if (Array.isArray(reply.teams)) return reply.teams.length ? reply.teams.map((t: any) => `${t.id}  ${t.name}  ${t.state}  ${t.members} teammates · ${t.pending} waiting`).join('\n') : 'No teams yet. Connect existing harnesses from Team in Harness.'
   // Keep question IDs and evidence intact. Structured, readable text is also useful to terminal agents.
   return JSON.stringify(reply, null, 2)
 }

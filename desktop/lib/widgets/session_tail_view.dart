@@ -172,7 +172,7 @@ class _SessionTailViewState extends State<SessionTailView> {
                             ? 'Loading earlier turns…'
                             : tail.hasMore
                             ? 'Earlier turns above'
-                            : 'Start of session',
+                            : 'Start of conversation',
                         style: muted,
                       ),
                     );

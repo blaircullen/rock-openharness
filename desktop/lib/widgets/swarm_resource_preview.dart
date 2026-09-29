@@ -9,6 +9,7 @@ import '../shortcuts/app_keymap.dart';
 import '../shortcuts/keymap.dart';
 import '../models/api_connections_controller.dart'
     show ApiModels, contextWindowLabel;
+import '../models/local_model.dart';
 import '../models/model_search_catalog.dart';
 import '../shared/theme/app_theme.dart' as grid;
 import '../state/app_state.dart';
@@ -24,6 +25,7 @@ import 'api_picker_form.dart';
 import 'swarm_search_preview.dart';
 import 'swarm_preview_scroll.dart';
 import 'terminal_text_action.dart';
+import 'key_hints.dart';
 
 const resourcePickerCommands = {
   'picker.resource_toggle',
@@ -143,6 +145,19 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
     search.setQuery('@');
     final index = search.rows.indexWhere((row) => row.isCreate);
     if (index >= 0) search.move(index - search.cursor);
+    widget.onRefocus();
+  }
+
+  bool _isOnline(MachineState machine) =>
+      machine.nodeOnline != false &&
+      !machine.needsLink &&
+      machine.connectionStatus == ConnectionStatus.connected;
+
+  /// Scope the picker to this machine's harnesses — the same list Enter on
+  /// a project/machine group opens, so Rename/Delete are not the only doors.
+  void _viewMachine() {
+    final selected = row;
+    if (selected == null || !widget.search.scopeToGroup(selected.id)) return;
     widget.onRefocus();
   }
 
@@ -330,7 +345,9 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
         action?.onPressed?.call();
         return true;
       }
+      // Get on a model the harness can run is Get and Use in one step: the choose path, as Use is.
       if (widget.search.canSelectModel(row) ||
+          widget.search.canGetModelForUse(row) ||
           widget.search.isModelDownloadsRow(row) ||
           widget.search.canExpandApi(row)) {
         _open();
@@ -400,17 +417,17 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
       for (final filter in SessionFilter.values)
         _ResourceAction(
           switch (filter) {
-            SessionFilter.all => 'Show all sessions',
-            SessionFilter.needsInput => 'Show sessions needing input',
-            SessionFilter.running => 'Show running sessions',
-            SessionFilter.paused => 'Show paused sessions',
+            SessionFilter.all => 'Show all harnesses',
+            SessionFilter.needsInput => 'Show harnesses needing input',
+            SessionFilter.running => 'Show running harnesses',
+            SessionFilter.paused => 'Show paused harnesses',
           },
           () => widget.search.setSessionFilter(filter),
           command: 'picker.filter.${filter.name}',
         ),
       for (final sort in SessionSort.values)
         _ResourceAction(
-          'Sort sessions: ${sort.label}',
+          'Sort harnesses: ${sort.label}',
           () => widget.search.setSessionSort(sort),
           command: 'picker.sort.${sort.name}',
         ),
@@ -435,6 +452,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
           title:
               {
                     'picker.resource_toggle',
+                    'picker.resource_view',
                     'picker.resource_rename',
                     'picker.resource_settings',
                     'picker.resource_remove',
@@ -632,7 +650,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
           key('picker.control_next') != null)
         '${key('picker.control_previous')}/${key('picker.control_next')} move',
       if (starting)
-        'Starting…'
+        widget.search.usingLabel ?? 'Starting…'
       else if (key('picker.accept') case final enter?
           when managing ||
               row?.isModel != true ||
@@ -670,9 +688,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
       child: Text(
         hints.join('  ·  '),
         key: const ValueKey('resource-control-hints'),
-        style: terminalContentStyle(
-          color: theme.foreground.withValues(alpha: .54),
-        ),
+        style: terminalContentStyle(color: theme.muted),
       ),
     );
   }
@@ -764,7 +780,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
                         (get
                             ? local.canStart
                             : search.canSelectModel(selected)))
-                ? !stop && !get
+                ? !stop && (!get || search.canGetModelForUse(selected))
                       ? _open
                       : () => unawaited(
                           _run(() async {
@@ -829,6 +845,12 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
       if (machine == null) return [];
       final secondary = _secondaryActions();
       return [
+        if (_isOnline(machine))
+          _ResourceAction(
+            'View',
+            _viewMachine,
+            command: 'picker.resource_view',
+          ),
         ...secondary.where((a) => a.command == 'picker.resource_connect'),
         ...secondary.where((a) => a.command == 'picker.resource_settings'),
         if (!machine.machine.isShared)
@@ -1032,10 +1054,18 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
   Widget _modelPreview() {
     final catalog = widget.search.models!;
     if (widget.search.isModelDownloadsRow(row)) {
-      return _details([
-        'Get models',
-        'Browse models available to download on your machines.',
-      ], controls: true);
+      return _details(
+        widget.search.modelDownloadsVisible
+            ? [
+                'Show fewer',
+                'Keep only the catalog\'s top ${SwarmSearchController.shownDownloads} in the list.',
+              ]
+            : [
+                'More models',
+                'The rest of the models the grid catalog ranks for this machine, best first.',
+              ],
+        controls: true,
+      );
     }
     final entry = model;
     if (entry == null) {
@@ -1056,11 +1086,6 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
     // API entries have their own dedicated preview; keep main's dispatch.
     if (entry.api != null) return _apiPreview(entry);
 
-    String bytesLabel(double? bytes) {
-      if (bytes == null) return '—';
-      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-    }
-
     String windowLabel(double? seconds) {
       if (seconds == null) return '—';
       if (seconds > 0 && seconds % 86400 == 0) {
@@ -1072,25 +1097,33 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
       return '${(seconds / 60).round()}m';
     }
 
+    final inUse = widget.search.modelRowInUse(row!);
+    // The daemon refuses a download without its size and a gigabyte to spare; say so before Get.
+    final size = local?.sizeBytes, free = owner.freeDiskBytes;
+    final diskShort =
+        local != null &&
+        !local.downloaded &&
+        !pending &&
+        !opActive &&
+        size != null &&
+        free != null &&
+        size + _kGiB > free;
+    // "this Mac" in a sentence, "This Mac" as a value; another machine by its name.
+    final machineName =
+        identical(owner, catalog.manager) &&
+            (owner.machine?.isLocalMachine ?? true)
+        ? thisComputerName()
+        : entry.node ?? 'its machine';
+    final machineTitle = machineName == thisComputerName()
+        ? '${machineName[0].toUpperCase()}${machineName.substring(1)}'
+        : machineName;
+
     // The status word is the catalog's own [localStatus] so the pane and the
     // list row can never disagree (both come from the same [_refresh] snapshot);
     // no re-derivation from a possibly-stale operation on the pane side.
-    final statusWord =
-        local != null ? catalog.localStatus(local, controller: owner) : entry.status;
-
-    // Suitability against this machine's usable memory, per plan §5. Only local
-    // models carry a "fits this machine" meaning; shared/api/subscription nodes
-    // have no per-node memory here, so fit is left out for them.
-    final memory = owner.memoryBytes;
-    String? fitsLabel() {
-      final size = local?.sizeBytes;
-      if (memory == null || local == null || size == null) return null;
-      if (size <= memory) {
-        final gb = (memory / (1024 * 1024 * 1024)).toStringAsFixed(0);
-        return '✓ fits $gb GB';
-      }
-      return 'needs ${(size / (1024 * 1024 * 1024)).toStringAsFixed(0)} GB';
-    }
+    final statusWord = local != null
+        ? catalog.localStatus(local, controller: owner)
+        : entry.status;
 
     Widget labelValue(String label, String value) {
       return Padding(
@@ -1120,10 +1153,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
     Widget errorLine(String text) {
       return Padding(
         padding: EdgeInsets.only(top: cell.height),
-        child: Text(
-          text,
-          style: terminalContentStyle(color: theme.yellow),
-        ),
+        child: Text(text, style: terminalContentStyle(color: theme.yellow)),
       );
     }
 
@@ -1141,24 +1171,52 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
         ),
         SizedBox(height: cell.height),
         Text(
-          statusWord,
+          inUse ? '$statusWord · this harness is on it' : statusWord,
           style: terminalContentStyle(color: theme.foreground),
         ),
         if (widget.search.modelUseErrorId == entry.id &&
             widget.search.modelUseError != null)
           errorLine(widget.search.modelUseError!),
         SizedBox(height: cell.height),
-        labelValue(
-          'Machine',
-          entry.node ?? (entry.source == 'Local' ? 'This Mac' : entry.source),
-        ),
         if (local != null) ...[
-          if (fitsLabel() case final fits?) labelValue('Fits', fits),
-          labelValue('Size', bytesLabel(local.sizeBytes)),
-          labelValue('Quant', local.quant ?? '—'),
+          // What decides between models: what it costs to get, whether it fits, how fast it answers.
+          if (local.sizeBytes case final size?)
+            labelValue(
+              local.downloaded ? 'Size' : 'Download',
+              [
+                gigabytesLabel(size),
+                if (!local.downloaded && owner.freeDiskBytes != null)
+                  '${gigabytesLabel(owner.freeDiskBytes!)} free',
+              ].join(' · '),
+            ),
+          if ((local.sizeBytes, owner.memoryBytes) case (
+            final size?,
+            final memory?,
+          ))
+            labelValue(
+              'Memory',
+              '${size <= memory ? 'fits' : 'needs ${gigabytesLabel(size)}'} · '
+                  '$machineName has ${gigabytesLabel(memory)}',
+            ),
           if (local.running && local.tokensPerSecond != null)
-            labelValue('Speed',
-                '${local.tokensPerSecond!.toStringAsFixed(1)} tok/s'),
+            labelValue(
+              'Speed',
+              '${local.tokensPerSecond!.toStringAsFixed(1)} tok/s',
+            )
+          else if (local.estTokS case final estimate?)
+            labelValue(
+              'Speed',
+              '~${estimate.round()} tok/s on $machineName (estimate)',
+            ),
+          if (local.contextWindow case final window?)
+            labelValue('Context', contextWindowLabel(window.toInt())),
+          if (local.paramsB case final params?)
+            labelValue(
+              'Params',
+              '${params == params.roundToDouble() ? params.toInt() : params}B',
+            ),
+          labelValue('Quant', local.quantization ?? '—'),
+          labelValue('Machine', machineTitle),
           if (local.running &&
               local.requests != null &&
               local.windowSeconds != null)
@@ -1166,27 +1224,40 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
               'Window',
               '${local.requests!.toInt()} req / ${windowLabel(local.windowSeconds)}',
             ),
-          if (local.resting) labelValue('State', 'Resting until your next message'),
-          if (!local.downloaded &&
+          if (local.resting)
+            labelValue('State', 'Resting until your next message'),
+          if (diskShort)
+            errorLine('Free up disk space on $machineName to get it.')
+          else if (!local.downloaded &&
               !owner.supportsDownload &&
               local.canStart &&
               !pending &&
               !opActive)
             errorLine(
-                'Downloads and starts on ${entry.node ?? 'this machine'}.'),
+              'Downloads and starts on ${entry.node ?? 'this machine'}.',
+            ),
+          if (_enterSentence(local) case final sentence?) ...[
+            SizedBox(height: cell.height * .4),
+            Text(
+              sentence,
+              style: terminalContentStyle(color: theme.foreground),
+            ),
+          ],
+        ] else ...[
+          labelValue(
+            'Machine',
+            entry.node ??
+                (entry.source == 'Local' ? machineTitle : entry.source),
+          ),
+          if (entry.subscription case final subscription?) ...[
+            ...((subscription['details'] as List?) ?? const [])
+                .map((d) => '$d')
+                .where((d) => d != entry.status)
+                .take(3)
+                .map((d) => labelValue('Detail', d)),
+          ],
+          labelValue('Source', entry.source),
         ],
-        if (entry.api case final api?) ...[
-          labelValue('Host', api.baseUrl),
-          labelValue('Key', api.keyEnv),
-        ],
-        if (entry.subscription case final subscription?) ...[
-          ...((subscription['details'] as List?) ?? const [])
-              .map((d) => '$d')
-              .where((d) => d != entry.status)
-              .take(3)
-              .map((d) => labelValue('Detail', d)),
-        ],
-        labelValue('Source', entry.source),
         if (widget.search.modelUseReason(row) case final reason?
             when reason != 'No active harness' &&
                 reason != entry.status &&
@@ -1214,6 +1285,33 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
         _actionButtons(),
       ],
     );
+  }
+
+  static const _kGiB = 1024 * 1024 * 1024;
+
+  /// What Enter does on a model of yours, in words, under its facts. Nothing when it does nothing.
+  String? _enterSentence(LocalModel local) {
+    final search = widget.search;
+    final selected = row;
+    if (selected == null || search.modelRowInUse(selected)) return null;
+    // One local model runs at a time: a second one waits for the first to stop.
+    final other = search.otherRunningModel(selected)?.name;
+    if (search.canGetModelForUse(selected)) {
+      return 'Get downloads it, starts it, and moves this harness onto it.';
+    }
+    if (search.canGetModel(selected)) {
+      return other == null
+          ? 'Get downloads it.'
+          : 'Get downloads it. Stop $other to run it: one local model runs at a time.';
+    }
+    if (search.canSelectModel(selected)) {
+      return local.running
+          ? 'Use moves this harness onto it.'
+          : other == null
+          ? 'Use starts it and moves this harness onto it.'
+          : 'Stop $other first: one local model runs at a time.';
+    }
+    return null;
   }
 
   static const _kDetailLabelColumns = 9;
@@ -1278,11 +1376,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
   Widget _machinePreview() {
     final machine = app.stateOf(row!.machineId!);
     if (machine == null) return _details([row!.title, 'Unavailable']);
-    final online =
-        machine.nodeOnline != false &&
-        !machine.needsLink &&
-        machine.connectionStatus == ConnectionStatus.connected;
-    final resources = online
+    final resources = _isOnline(machine)
         ? widget.search.machineResources[row!.machineId]
         : null;
     final status = machine.nodeOnline == false
@@ -1321,9 +1415,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
       grid.AppTheme.palette.value,
       terminalThemeStore.value,
     );
-    final muted = terminalContentStyle(
-      color: theme.foreground.withValues(alpha: .54),
-    );
+    final muted = terminalContentStyle(color: theme.muted);
     return ListView(
       controller: _scroll,
       padding: EdgeInsets.symmetric(
@@ -1392,7 +1484,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
                   widget.onRefocus();
                 },
                 style: TextButton.styleFrom(
-                  foregroundColor: theme.foreground.withValues(alpha: .54),
+                  foregroundColor: theme.muted,
                   textStyle: terminalContentStyle(),
                   padding: EdgeInsets.zero,
                   minimumSize: Size.zero,
@@ -1463,9 +1555,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
                 ),
                 child: Text(
                   'Working…',
-                  style: terminalContentStyle(
-                    color: theme.foreground.withValues(alpha: .54),
-                  ),
+                  style: terminalContentStyle(color: theme.muted),
                 ),
               ),
             if (_errors[row?.id] case final error?)
@@ -1543,7 +1633,7 @@ class _SwarmResourcePreviewState extends State<SwarmResourcePreview> {
                   ),
                   child: _actionButtons(),
                 ),
-              _controlHints(),
+              if (KeyHints.visibleOf(context)) _controlHints(),
             ],
           ],
         );

@@ -530,7 +530,7 @@ void main() {
       await key(tester, LogicalKeyboardKey.keyG, ctrl: true);
       expect(secondInput.last.bytes, [
         7,
-      ], reason: 'Unbinding restores the original agent input route');
+      ], reason: 'Unbinding restores the original harness input route');
       expect(app.panes, [first, second]);
       await tester.pumpWidget(const SizedBox());
       app.dispose();

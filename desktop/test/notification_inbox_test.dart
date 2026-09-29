@@ -238,12 +238,14 @@ void main() {
         await tester.pumpAndSettle();
         expect(inbox, findsNothing);
         expect(app.focusedPane?.agentId, 'a9');
-        expect(app.agentUnread.kindFor('m', 'a9'), AlertKind.needsYou);
+        expect(app.agentUnread.kindFor('m', 'a9'), isNull);
+        expect(app.questionFor('m', 'a9'), isNotNull);
+        expect(notificationInbox(app), isEmpty);
         await open();
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         expect(inbox, findsNothing);
-        expect(app.agentUnread.count, 1);
+        expect(app.agentUnread.count, 0);
         await tester.pump(const Duration(milliseconds: 350));
         await tester.pumpWidget(const SizedBox());
         app.dispose();

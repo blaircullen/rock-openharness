@@ -279,7 +279,7 @@ void main() {
       var rows = cache.read(app, []);
       expect(
         rows.singleWhere((row) => row.isSwarm).detail,
-        'Tab · 2 harnesses · 1 project · 2 machines',
+        'Swarm · 2 harnesses · 1 project · 2 machines',
       );
       expect(rows.where((row) => row.agentId == 'a0'), hasLength(2));
       expect(rows.singleWhere((row) => row.isSwarm).title, 'Release work');
@@ -287,7 +287,7 @@ void main() {
       rows = cache.read(app, []);
       expect(
         rows.singleWhere((row) => row.isSwarm).detail,
-        'Tab · 3 harnesses · 2 projects · 2 machines',
+        'Swarm · 3 harnesses · 2 projects · 2 machines',
       );
 
       app.newSwarm();
@@ -335,11 +335,11 @@ void main() {
       final cache = SwarmSearchCatalog();
       expect(
         cache.read(app, projects).singleWhere((row) => row.isSwarm).detail,
-        'Tab · 2 harnesses · 1 project · 1 machine',
+        'Swarm · 2 harnesses · 1 project · 1 machine',
       );
       expect(
         cache.read(app, []).singleWhere((row) => row.isSwarm).detail,
-        'Tab · 2 harnesses · 1 machine',
+        'Swarm · 2 harnesses · 1 machine',
       );
     },
   );

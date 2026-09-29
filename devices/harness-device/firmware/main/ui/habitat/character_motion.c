@@ -32,7 +32,10 @@ bool ht_character_reaction_tick(ht_character_reaction_t *m, uint32_t now, ht_cha
             }
         }
         if (down) {
-            int gaze = (x - 233) / 40;
+            // The eyes follow the finger relative to the middle of the FACE, not to 233 — which is
+            // the dial's centre and a third of the way across the Pro's, so every touch there read
+            // as a look to the right.
+            int gaze = (x - HT_WIDTH / 2) / 40;
             p.look = gaze < -2 ? -2 : gaze > 2 ? 2 : gaze;
             p.pressed = true;
             m->release_until = now + 400;

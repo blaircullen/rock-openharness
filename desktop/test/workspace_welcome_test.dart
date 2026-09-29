@@ -151,7 +151,7 @@ void main() {
 
     keymap.apply('{"bindings":[{"keys":"cmd+p","command":null}]}');
     await tester.pump();
-    expect(find.text('Manage all your agents'), findsOneWidget);
+    expect(find.text('Manage all your harnesses'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('welcome-harnesses.list')));
     expect(commands, ['harnesses.list', 'harnesses.list']);
     expect(tester.takeException(), isNull);

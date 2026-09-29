@@ -105,9 +105,7 @@ class SwarmSearchInput extends StatelessWidget {
               : 12,
         ),
       ),
-      borderSide: outlined
-          ? BorderSide(color: Colors.white.withValues(alpha: .10))
-          : BorderSide.none,
+      borderSide: outlined ? BorderSide(color: boxInk(.10)) : BorderSide.none,
     );
     final field = TextField(
       key: inputKey,
@@ -119,7 +117,7 @@ class SwarmSearchInput extends StatelessWidget {
       onTapAlwaysCalled: true,
       onTapOutside: onTapOutside == null ? null : (_) => onTapOutside!(),
       onChanged: onChanged,
-      style: terminalStyle ? style : grid.AppType.mono(color: Colors.white),
+      style: terminalStyle ? style : grid.AppType.mono(color: boxText(1)),
       cursorColor: bios ? theme.cursor : grid.AppPalette.swarmAccent,
       cursorWidth: cursorWidth ?? (bios ? cell.width : 2),
       cursorRadius: Radius.zero,
@@ -130,9 +128,7 @@ class SwarmSearchInput extends StatelessWidget {
       decoration: bios
           ? InputDecoration(
               hintText: hint,
-              hintStyle: style.copyWith(
-                color: theme.foreground.withValues(alpha: .54),
-              ),
+              hintStyle: style.copyWith(color: theme.muted),
               hintMaxLines: 1,
               isDense: true,
               isCollapsed: true,
@@ -147,7 +143,7 @@ class SwarmSearchInput extends StatelessWidget {
               hintText: hint,
               hintStyle: terminalStyle
                   ? style.copyWith(color: kBoxFaint)
-                  : grid.AppType.mono(color: Colors.white60),
+                  : grid.AppType.mono(color: boxText(.60)),
               hintMaxLines: 1,
               prefixIcon: prompt != null
                   ? Padding(
@@ -167,11 +163,7 @@ class SwarmSearchInput extends StatelessWidget {
                     )
                   : terminal
                   ? null
-                  : Icon(
-                      Icons.search,
-                      size: fontSize + 4,
-                      color: Colors.white60,
-                    ),
+                  : Icon(Icons.search, size: fontSize + 4, color: boxText(.60)),
               prefixIconConstraints: BoxConstraints(
                 minWidth: prompt != null
                     ? 36
@@ -191,7 +183,7 @@ class SwarmSearchInput extends StatelessWidget {
                             TextButton(
                               onPressed: onClose,
                               style: TextButton.styleFrom(
-                                foregroundColor: Colors.white60,
+                                foregroundColor: boxText(.60),
                                 minimumSize: const Size(36, 28),
                               ),
                               child: Text(

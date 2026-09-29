@@ -98,7 +98,10 @@ export const FIRST_PROMPT_ARGS: Readonly<Record<AgentEngine, readonly string[] |
   // No documented first-prompt argument for an interactive launch. Not guessed.
   cursor: null,
   pi: null,
-  hermes: null,
+  // `hermes chat --help`: "-q, --query QUERY  Query to run. On a real TTY the prompt seeds an
+  // interactive session (first turn)". Measured on a live pane: the prompt is answered and the TUI
+  // stays open for the next turn, which is also what lets a fork of a Hermes agent hand off.
+  hermes: ['chat', '-q'],
   commandcode: null,
   devin: null,
   muse: null,

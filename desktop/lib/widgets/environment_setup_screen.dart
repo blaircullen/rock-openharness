@@ -351,7 +351,7 @@ class _EnvironmentSetupScreenState extends State<EnvironmentSetupScreen> {
   );
 
   String _tmuxDetail(EnvironmentReadiness state) {
-    const base = 'Required for every terminal session';
+    const base = 'Required for every harness';
     final steps = state.planFor(EnvironmentStep.tmux);
     if (steps.isEmpty) {
       return Platform.isLinux ? '$base · tmux, ps' : base;

@@ -6,7 +6,6 @@ import 'package:xterm/xterm.dart' show Terminal;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../analytics/analytics.dart';
 import '../teams/team_controller.dart';
 import '../api/api_client.dart';
 import '../viewer/direct_auth_api.dart';
@@ -329,16 +328,6 @@ class AppNotifier extends ChangeNotifier {
     if (was != null && !moved.isAfter(was)) return;
     sessionPreviews.markStale(previewKey(machine.machine.machineId, agent));
   }
-
-  /// When this launch became signed in, and by which route — until the first
-  /// message of that session has been reported, after which it is null.
-  ///
-  /// One record for the whole app, not one per agent: the question is how long
-  /// somebody sits signed in before talking to anything at all, and which agent
-  /// they finally picked is `agent_created`'s business. A session where nobody
-  /// ever sends a message simply leaves this set until sign-out or quit, which
-  /// is exactly the population the event exists to measure the absence of.
-  ({DateTime at, String from})? _awaitingFirstMessage;
 
   final Map<String, Timer> _offlineRetryTimers = {};
   // Safety-net reconciliation for a connected machine's agent list, on top of the push events
@@ -1215,28 +1204,7 @@ class AppNotifier extends ChangeNotifier {
       currentUser = null;
       status = AppStatus.unauthenticated;
       notifyListeners();
-    } finally {
-      // A `finally` rather than a call per exit path: bootstrap resolves three
-      // ways (signed out, signed in, thrown) and the launch happened in all
-      // three.
-      _trackAppOpened();
     }
-  }
-
-  bool _appOpenedTracked = false;
-
-  /// `app_opened`, once, with the answer bootstrap actually reached. Sent from
-  /// here rather than from the first frame because `signed_in` is not known
-  /// until the session has been read, and a first-frame event would report
-  /// every launch as signed out.
-  void _trackAppOpened() {
-    if (_appOpenedTracked) return;
-    _appOpenedTracked = true;
-    final signedIn = status == AppStatus.authenticated;
-    analytics.appOpened(signedIn: signedIn);
-    // A returning user is signed in before the app is even on screen, so their
-    // wait starts here rather than at a sign-in that never happens.
-    if (signedIn) _armFirstMessage('launch');
   }
 
   /// Whether this device is signed in, and everything behind the login screen when it is — what
@@ -1362,7 +1330,7 @@ class AppNotifier extends ChangeNotifier {
   /// Who is signed in, from the account. Shared by the boot path and by the
   /// retry path, because a profile the boot could not read is asked for again
   /// there — and a session that never learns its own account has an empty
-  /// footer and unattributed analytics.
+  /// footer.
   Future<void> _loadProfile() {
     final pending = _profileInFlight;
     if (pending != null) return pending;
@@ -1382,12 +1350,7 @@ class AppNotifier extends ChangeNotifier {
         return;
       }
       if (me != null) {
-        final profile = CurrentUserProfile.fromMe(me);
-        currentUser = profile;
-        // Every event from here on is filed under the account, including ones
-        // queued while this call was still in flight — the queue reads the
-        // account per event, not per launch.
-        analyticsAccount.set(id: profile.id, email: profile.email);
+        currentUser = CurrentUserProfile.fromMe(me);
         notifyListeners();
       }
     } catch (error) {
@@ -1412,10 +1375,8 @@ class AppNotifier extends ChangeNotifier {
     signingIn = false;
     // The code was scanned into the session that just ended — see [logout].
     pendingPairing = null;
-    _awaitingFirstMessage = null;
     _desk.reset();
     zoo.reset();
-    analyticsAccount.clear();
     unawaited(_pool?.closeAll());
     _pool = null;
     _lastError = message;
@@ -1424,18 +1385,10 @@ class AppNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A session was just saved: load everything behind the login screen, and
-  /// count the sign-in. The one road in for every way of signing in.
+  /// A session was just saved: load everything behind the login screen. The
+  /// one road in for every way of signing in.
   Future<void> _enterSignedIn(int revision) async {
     await _finishBootstrapSignedIn();
-    if (!_authWorkCurrent(revision) || status != AppStatus.authenticated) {
-      return;
-    }
-    analytics.signedIn();
-    // Restarts the clock even if `_trackAppOpened` already started one: this
-    // person met the login screen, so their wait begins where the launch's
-    // did not.
-    _armFirstMessage('sign_in');
   }
 
   /// The phone's sign-in, first step: email [email] a one-time code. Throws the
@@ -1471,7 +1424,6 @@ class AppNotifier extends ChangeNotifier {
     } catch (_) {
       if (_authWorkCurrent(revision)) {
         status = AppStatus.unauthenticated;
-        analytics.signInFailed('failed');
       }
       rethrow;
     } finally {
@@ -1502,7 +1454,6 @@ class AppNotifier extends ChangeNotifier {
     } catch (_) {
       if (_authWorkCurrent(revision)) {
         status = AppStatus.unauthenticated;
-        analytics.signInFailed('failed');
       }
       rethrow;
     } finally {
@@ -1567,12 +1518,6 @@ class AppNotifier extends ChangeNotifier {
     expandedMachines.clear();
     selectedMachineId = null;
     status = AppStatus.unauthenticated;
-    analytics.signedOut();
-    // A session that ended without a message reports nothing — its absence IS
-    // the finding, and a stale clock would attach that wait to whoever signs in
-    // next.
-    _awaitingFirstMessage = null;
-    analyticsAccount.clear();
     notifyListeners();
   }
 
@@ -3136,40 +3081,6 @@ class AppNotifier extends ChangeNotifier {
     );
   }
 
-  /// Starts the clock `app_first_message` measures. [from] is `sign_in` for a
-  /// fresh log-in and `launch` for an app opened with a session already there.
-  ///
-  /// One body, called by both routes and by the test seam below — a second
-  /// place building this record is a second place to get it wrong.
-  void _armFirstMessage(String from) =>
-      _awaitingFirstMessage = (at: DateTime.now(), from: from);
-
-  /// Closes that clock out, once.
-  ///
-  /// A one-shot latch rather than a counter: the record is read and cleared in
-  /// the same breath, so every turn after the first finds nothing and there is
-  /// never a "which message is this" to get wrong.
-  ///
-  /// ⚠️ Called from `turn_started` ONLY, never from the other two routes into
-  /// [_markAgentProcessing]. A `turn_heartbeat`, and an adopted agent found
-  /// already mid-turn when this app connected, are both work that was under way
-  /// before anybody here typed anything — counting either would report a
-  /// near-zero wait for a returning user who has not said a word.
-  void _reportFirstMessage() {
-    if (_awaitingFirstMessage case final login?) {
-      _awaitingFirstMessage = null;
-      analytics.appFirstMessage(
-        from: login.from,
-        secondsSinceLogin: DateTime.now().difference(login.at).inSeconds,
-      );
-    }
-  }
-
-  /// [_armFirstMessage], for a test: signing in needs a live CLI, and what is
-  /// worth pinning is what the first turn AFTER it does.
-  @visibleForTesting
-  void armFirstMessageForTest(String from) => _armFirstMessage(from);
-
   String _turnActivityKey(String machineId, String agentId) =>
       '$machineId\u0000$agentId';
 
@@ -3624,6 +3535,7 @@ class AppNotifier extends ChangeNotifier {
     String? swarmId,
     AgentCreationAttempt? attempt,
     String? prompt,
+    String? name,
   }) {
     final creation = attempt ?? AgentCreationAttempt();
     final task = prompt?.trim();
@@ -3632,6 +3544,9 @@ class AppNotifier extends ChangeNotifier {
       // The harness's first task — the machine types it into the agent once it is up. Only
       // claude, codex and opencode take one (see `kFirstTaskEngines`); an empty one is left out.
       if (task != null && task.isNotEmpty) 'prompt': task,
+      // What the agent is called until its engine titles the session. Absent, the machine names it
+      // after the engine and the time ("Codex harness 9-17 15:26").
+      if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
       if (projectFolder == null) 'cwd': folder,
       ...?projectFolder?.payload,
       'permissionMode': ?permissionMode,
@@ -3699,9 +3614,9 @@ class AppNotifier extends ChangeNotifier {
 
   String? _creationPlacementError(String targetId) {
     final target = swarms.where((s) => s.id == targetId).firstOrNull;
-    if (target == null) return 'This tab was closed';
+    if (target == null) return 'This swarm was closed';
     if (target.panes.length >= maxPanes) {
-      return 'This tab is full. Open a new tab to create a harness.';
+      return 'This swarm is full. Open a new swarm to create a harness.';
     }
     return null;
   }
@@ -3919,7 +3834,7 @@ class AppNotifier extends ChangeNotifier {
     notifyListeners();
     if (_creationPlacementError(targetId) != null) {
       _lastError =
-          'The harness was created, but its original tab or layout changed. '
+          'The harness was created, but its original swarm or layout changed. '
           'Use Open Harness to find it.';
       _lastErrorRetryable = false;
       notifyListeners();
@@ -4820,7 +4735,7 @@ class AppNotifier extends ChangeNotifier {
         existing == null &&
         targetPanes.length >= maxPanes) {
       _lastError =
-          'This tab holds $maxPanes harnesses. Open another tab to add more.';
+          'This swarm holds $maxPanes harnesses. Open another swarm to add more.';
       _lastErrorRetryable = false;
       notifyListeners();
       return;
@@ -5573,10 +5488,6 @@ class AppNotifier extends ChangeNotifier {
         break;
       case 'turn_started':
       case 'turn_heartbeat':
-        // A turn that STARTS is somebody sending something; a heartbeat is a
-        // turn already under way, which for an agent this app merely reconnected
-        // to is work nobody here just asked for.
-        if (type == 'turn_started') _reportFirstMessage();
         var changed = false;
         final agentId = _eventAgentId(machine, event, payload);
         if (agentId != null) {
