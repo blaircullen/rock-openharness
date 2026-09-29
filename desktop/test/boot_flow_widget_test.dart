@@ -10,6 +10,7 @@ import 'package:harness/auth/auth_session.dart';
 import 'package:harness/auth/cli_login.dart';
 import 'package:harness/bootstrap/environment_provisioner.dart';
 import 'package:harness/core/config.dart';
+import 'package:harness/core/fork_build.dart';
 import 'package:harness/core/local_key_value_store.dart';
 import 'package:harness/core/models.dart';
 import 'package:harness/app_shell.dart';
@@ -696,7 +697,10 @@ void main() {
     await tester.tap(find.text('Manual setup'));
     await tester.pump();
 
-    expect(find.textContaining('/bin/sh -s -- --desktop'), findsOneWidget);
+    // A fork build names the fork CLI install, never the stock installer
+    // (core/fork_build.dart).
+    expect(find.textContaining(kRockForkCliInstallHint), findsOneWidget);
+    expect(find.textContaining('/bin/sh -s -- --desktop'), findsNothing);
     expect(find.text('Check again'), findsOneWidget);
   });
 

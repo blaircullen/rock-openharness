@@ -1282,16 +1282,13 @@ fi''';
   }
 
   Future<bool> _hasHarness() async {
-    // A fork CLI installed from the checkout may run on the developer's own
-    // Node (install-cli.sh), not the managed one; that is a working CLI, and
+    final nodePath = await _managedNodePath();
+    // With no managed runtime, a fork CLI installed from the checkout runs on
+    // the developer's own Node (install-cli.sh); that is a working CLI, and
     // treating it as missing is what would send the stock installer over it.
-    if (rockForkBuild && await _rockForkCliRuns()) return true;
-    final currentNode = File('${harnessHome.path}/runtime/current-node');
-    if (!await currentNode.exists()) return false;
-    final nodePath = (await currentNode.readAsString()).trim();
-    if (nodePath.isEmpty || !File(nodePath).existsSync()) return false;
-    final runtimeRoot = '${harnessHome.absolute.path}/runtime/';
-    if (!File(nodePath).absolute.path.startsWith(runtimeRoot)) return false;
+    // A managed runtime, when present, is what install-cli.sh uses too, so it
+    // gets the same Node probe as a stock build.
+    if (nodePath == null) return rockForkBuild && await _rockForkCliRuns();
     final node = await _runProbe(
       nodePath,
       ['--version'],
@@ -1314,6 +1311,18 @@ fi''';
     } on StateError {
       return false;
     }
+  }
+
+  /// The recorded managed Node under `~/.harness/runtime`, or null when there
+  /// is none (missing or empty record, missing binary, or outside the runtime).
+  Future<String?> _managedNodePath() async {
+    final currentNode = File('${harnessHome.path}/runtime/current-node');
+    if (!await currentNode.exists()) return null;
+    final nodePath = (await currentNode.readAsString()).trim();
+    if (nodePath.isEmpty || !File(nodePath).existsSync()) return null;
+    final runtimeRoot = '${harnessHome.absolute.path}/runtime/';
+    if (!File(nodePath).absolute.path.startsWith(runtimeRoot)) return null;
+    return nodePath;
   }
 
   Future<bool> _rockForkCliRuns() async {
