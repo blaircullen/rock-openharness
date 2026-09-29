@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
-  externalOnlyTmuxPanes, isExternallyOwned, managedTmuxPaneEngines, ownershipFitsRow, persistedSchemaVersion, sameOwnership, validOwnership,
+  EXTERNAL_PANE_DETAIL, externalOnlyTmuxPanes, isExternallyOwned, managedTmuxPaneEngines, ownershipFitsRow, persistedSchemaVersion, sameOwnership, validOwnership,
   type ExternalTmuxOwnership,
 } from './agentOwnership.js'
 
@@ -53,6 +53,14 @@ async function loadRegistryModule() {
 }
 
 const processIdentity = (pid: number) => ({ pid, executable: 'claude', startMarker: `start ${pid}` })
+
+describe('the refusal a borrowed pane answers lifecycle requests with', () => {
+  it('names what Harness refuses, and does not claim it refuses opening or typing', () => {
+    expect(EXTERNAL_PANE_DETAIL).toMatch(/will not stop, restart, resume, rename or relaunch it/)
+    expect(EXTERNAL_PANE_DETAIL).toMatch(/can open it, type into it and remove it from the list/)
+    expect(EXTERNAL_PANE_DETAIL).not.toMatch(/will not open|not[^.]*type into/)
+  })
+})
 
 describe('ownership shape', () => {
   it('accepts exactly managed or a complete external tmux claim', () => {

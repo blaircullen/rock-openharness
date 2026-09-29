@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { ExternalTmuxController, readFullTmuxInventory, type ExternalRegistry } from './externalTmux.js'
 import type { ExternalTmuxOwnership } from './agentOwnership.js'
 import type { RegisteredSession } from './registry.js'
-import { TmuxControlStream } from './tmuxStream.js'
+import { removeBorrowedView, sweepBorrowedViews, TmuxControlStream } from './tmuxStream.js'
 
 const hasTmux = (() => { try { execFileSync('tmux', ['-V']); return true } catch { return false } })()
 
@@ -149,6 +149,81 @@ describe.skipIf(!hasTmux)('borrowed panes on a real, isolated tmux server', () =
     await second.value.close()
     expect(tmux('show-options', '-w', '-t', myPane, 'window-size')).toBe(before)
     expect(alive(myPane)).toBe(true)
+    expect(viewSessions()).toEqual([])
+  })
+
+  const sessionNames = (): string[] => tmux('list-sessions', '-F', '#{session_name}').split('\n').filter(Boolean)
+  const viewSessions = (): string[] => sessionNames().filter((name) => name.startsWith('harness_view-'))
+  /** What every other client of the session sees: its current window and that window's active pane. */
+  const current = (session: string): string => tmux('display-message', '-p', '-t', `=${session}:`, '#{window_id} #{pane_id}')
+
+  it('opening, streaming into and closing a pane in a 2-window session leaves its current window and pane alone', async () => {
+    tmux('new-session', '-d', '-s', 'twowin', '-x', '80', '-y', '24', 'cat')
+    const target = tmux('new-window', '-d', '-P', '-F', '#{pane_id}', '-t', '=twowin:', 'cat')
+    const before = current('twowin')
+    expect(before.split(' ')[1]).not.toBe(target)
+    const sessionsBefore = sessionNames()
+
+    const listed = await controller.list()
+    if (!listed.ok) throw new Error(listed.detail)
+    const added = await controller.enroll(target, listed.server!.serverIdentity)
+    if (!added.ok) throw new Error(added.detail)
+    const ownership = added.agent.ownership as ExternalTmuxOwnership
+    const chunks: Buffer[] = []
+    const opened = await TmuxControlStream.open(target, { cols: 100, rows: 30 }, {
+      onData: (bytes) => { chunks.push(Buffer.from(bytes)) },
+      onClose: () => {},
+    }, false, { expectServer: { socketPath: ownership.socketPath, serverIdentity: ownership.serverIdentity }, restoreWindowSize: true })
+    expect(opened.state).toBe('succeeded')
+    if (opened.state !== 'succeeded') return
+    expect(current('twowin')).toBe(before)
+    // The stream's own view session exists only while it is open, and no listing shows it.
+    expect(viewSessions()).toHaveLength(1)
+    const during = await controller.list()
+    if (!during.ok) throw new Error(during.detail)
+    expect(during.panes.filter((pane) => pane.paneId === target)).toHaveLength(1)
+    expect(during.panes.some((pane) => pane.sessionName.startsWith('harness_view-'))).toBe(false)
+    expect((await controller.verify(added.agent)).ok).toBe(true)
+
+    const typed = await opened.value.writeRaw(Buffer.from('two-window-hello\r'))
+    expect(typed.state).toBe('succeeded')
+    const deadline = Date.now() + 3_000
+    while (!Buffer.concat(chunks).toString('utf8').includes('two-window-hello') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    expect(Buffer.concat(chunks).toString('utf8')).toContain('two-window-hello')
+    expect(tmux('capture-pane', '-p', '-t', target)).toContain('two-window-hello')
+    expect(current('twowin')).toBe(before)
+
+    await opened.value.close()
+    expect(current('twowin')).toBe(before)
+    expect(alive(target)).toBe(true)
+    expect(sessionNames()).toEqual(sessionsBefore)
+    await controller.unenroll(added.agent.agentId)
+  })
+
+  it('daemon start removes a view a dead daemon left behind, and never one alone in its group', async () => {
+    const deadPid = 999_999
+    expect(() => process.kill(deadPid, 0)).toThrow()
+    const leftover = `harness_view-${deadPid}-1-0badc0de`
+    tmux('new-session', '-d', '-s', leftover, '-t', '=twowin')
+    // Alone: its own session is gone, so the view is all that keeps these panes alive.
+    tmux('new-session', '-d', '-s', 'solo', 'cat')
+    const soloPane = tmux('list-panes', '-t', '=solo:', '-F', '#{pane_id}')
+    const alone = `harness_view-${deadPid}-2-0badc0de`
+    tmux('new-session', '-d', '-s', alone, '-t', '=solo')
+    tmux('kill-session', '-t', '=solo')
+
+    expect(await sweepBorrowedViews()).toBe(1)
+    expect(sessionNames()).toContain('twowin')
+    expect(sessionNames()).not.toContain(leftover)
+    expect(sessionNames()).toContain(alone)
+    expect(alive(soloPane)).toBe(true)
+    expect(await removeBorrowedView(alone)).toBe(false)
+    expect(alive(soloPane)).toBe(true)
+    tmux('kill-session', '-t', `=${alone}`)
+    tmux('kill-session', '-t', '=twowin')
+    expect(viewSessions()).toEqual([])
   })
 
   it('unenroll forgets the row and leaves the pane running', async () => {

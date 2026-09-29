@@ -573,6 +573,13 @@ describe('listTmuxPanes / listAllTmuxPanes inventory', () => {
     })
   })
 
+  it('neither lists a borrowed stream’s view session, which repeats the person’s panes', async () => {
+    mockExecFile((_cmd, _args, cb) => cb(null, `${TMUX_OUTPUT}%0|100|harness_view-4242-1-0badc0de|/home/user/projects\n`))
+    const [all, filtered] = await Promise.all([listAllTmuxPanes(), listTmuxPanes()])
+    expect(all.ok && all.panes.map((pane) => pane.tmuxSessionName)).toEqual(['work', 'harness-claude-1759000000000', 'claude-1787912296587', 'mysession'])
+    expect(filtered.ok && filtered.panes.map((pane) => pane.tmuxPane)).toEqual(['%1'])
+  })
+
   it('both return { ok: true, panes: [] } on no-server error', async () => {
     mockExecFile((_cmd, _args, cb) => cb(new Error('no server running on /tmp/tmux-501/default'), ''))
     const [all, filtered] = await Promise.all([listAllTmuxPanes(), listTmuxPanes()])

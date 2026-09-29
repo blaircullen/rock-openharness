@@ -63,7 +63,7 @@ export function persistedSchemaVersion(row: { ownership?: unknown }): 2 | 3 {
 }
 
 export const EXTERNAL_PANE = 'EXTERNAL_PANE'
-export const EXTERNAL_PANE_DETAIL = 'This terminal belongs to a tmux session Harness did not create. Harness will not open, type into, rename, stop, restart, resume or relaunch it.'
+export const EXTERNAL_PANE_DETAIL = 'This terminal belongs to a tmux session Harness did not create. Harness can open it, type into it and remove it from the list, but will not stop, restart, resume, rename or relaunch it.'
 
 /** `terminal_error` code for a `terminal_open` naming an external row: it has no routable terminal. */
 export const EXTERNAL_TERMINAL_UNAVAILABLE = 'TERMINAL_EXTERNAL_UNAVAILABLE'

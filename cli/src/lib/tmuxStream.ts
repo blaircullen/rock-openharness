@@ -1,4 +1,6 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { BORROWED_VIEW_SESSION_PREFIX, borrowedViewOwnerPid } from './harnessSessionLabel.js'
 import { pasteRawIntoTmux } from './tmux.js'
 import {
   TERMINAL_ACTION_SUCCEEDED,
@@ -442,6 +444,67 @@ export interface TmuxStreamOpenOptions {
  */
 const borrowedWindowSizes = new Map<string, { value: string | null; holders: number }>()
 
+/**
+ * A borrowed pane's stream attaches through a session of its own, never the person's.
+ *
+ * `attach-session -t %N` makes %N's window the CURRENT window of the session it resolves to — the
+ * person's — and it stays switched after the stream detaches, so every other client of theirs jumps.
+ * Instead the stream makes a session grouped with theirs (`new-session -t`: same windows, its own
+ * current window) and attaches there by exact name. Nothing about the person's session changes; the
+ * pane is still addressed by `%N`, and control output covers every window the group shares.
+ *
+ * ⚠️ Killing a grouped session unlinks its windows, and a window no other session links is destroyed
+ * with its panes. So the view is only ever killed through `if-shell -F` on
+ * `session_group_size >= 2`, checked and acted on inside one tmux command: while another session of
+ * the group stands, every window is still linked there. A view left alone in its group (the person
+ * killed their own session while a stream was open) is holding their panes alive and is left as is.
+ */
+let borrowedViewSeq = 0
+
+async function createBorrowedView(sessionId: string): Promise<string | null> {
+  const name = `${BORROWED_VIEW_SESSION_PREFIX}${process.pid}-${++borrowedViewSeq}-${randomBytes(4).toString('hex')}`
+  // One command sequence, so no server loop runs between the create and the option: a person's global
+  // `destroy-unattached on` would otherwise destroy the view before the control client attaches.
+  const made = await execTmux([
+    'new-session', '-d', '-s', name, '-t', sessionId, ';',
+    'set-option', '-t', `=${name}:`, 'destroy-unattached', 'off',
+  ])
+  if (made.ok) return name
+  await removeBorrowedView(name)
+  return null
+}
+
+/** Kill a view session only while another session of its group still links every window. True once it is gone. */
+export async function removeBorrowedView(name: string): Promise<boolean> {
+  await execTmux(['if-shell', '-F', '-t', `=${name}:`, '#{>=:#{session_group_size},2}', `kill-session -t =${name}`])
+  return !(await execTmux(['has-session', '-t', `=${name}`])).ok
+}
+
+/**
+ * Daemon start: remove views a crashed daemon left behind — unattached, and made by a daemon that is
+ * gone (or by an earlier process that held this pid). A live daemon's view that is still between
+ * create and attach is never touched. Same group guard as every other removal.
+ */
+export async function sweepBorrowedViews(): Promise<number> {
+  const listed = await execTmux(['list-sessions', '-F', '#{session_name}|#{session_attached}|#{session_created}'])
+  if (!listed.ok) return 0
+  const startedAt = Math.floor(Date.now() / 1000 - process.uptime())
+  let removed = 0
+  for (const line of listed.stdout.toString('utf8').split('\n')) {
+    const [name, attached, created] = line.split('|')
+    const pid = name ? borrowedViewOwnerPid(name) : null
+    if (pid === null || attached !== '0') continue
+    const stale = pid === process.pid ? Number(created) < startedAt : !processAlive(pid)
+    if (!stale) continue
+    if (await removeBorrowedView(name!)) removed++
+  }
+  return removed
+}
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM' }
+}
+
 /** Server identity, socket, pane, window pane count — one line, read through the control client. */
 const SERVER_PROBE_FORMAT = '#{pid}:#{start_time}|#{socket_path}|#{pane_id}|#{window_panes}'
 
@@ -478,6 +541,9 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
   private inCopyMode = false
   /** The borrowed window this stream holds in `borrowedWindowSizes`, once it has resized it. */
   private borrowedWindow: { key: string; windowId: string } | undefined
+  /** The grouped session this borrowed stream is attached through, until it is removed. */
+  private borrowedView: string | undefined
+  private borrowedViewRemoval: Promise<void> | undefined
 
   private constructor(
     paneId: string,
@@ -485,9 +551,11 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
     private readonly sink: TerminalStreamSink,
     private readonly readOnly = false,
     private readonly options: TmuxStreamOpenOptions = {},
+    borrowedView?: string,
   ) {
     this.runtime = { backend: 'tmux', paneId }
     this.child = child
+    this.borrowedView = borrowedView
     this.commands = new ControlCommandQueue({
       write: (line) => {
         if (this.closed || !child.stdin.writable) return false
@@ -509,7 +577,21 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       void this.close()
     })
     child.once('error', (error) => this.notifyClose(`tmux control client error: ${error.message}`))
-    child.once('close', (code) => this.notifyClose(this.closed ? 'closed' : `tmux control client exited (${code ?? 'signal'})`))
+    child.once('close', (code) => {
+      this.notifyClose(this.closed ? 'closed' : `tmux control client exited (${code ?? 'signal'})`)
+      // Detached from outside (or its server went away) without close(): the view goes all the same.
+      void this.releaseBorrowedView()
+    })
+  }
+
+  /** Once per stream; every caller waits for the same removal. */
+  private releaseBorrowedView(): Promise<void> {
+    if (!this.borrowedViewRemoval) {
+      const view = this.borrowedView
+      this.borrowedView = undefined
+      this.borrowedViewRemoval = view ? removeBorrowedView(view).then(() => undefined) : Promise.resolve()
+    }
+    return this.borrowedViewRemoval
   }
 
   static async open(
@@ -522,7 +604,11 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
     const original = await paneMeta(paneId)
     if (!original) return { state: 'failed', reason: 'tmux pane metadata is unavailable' }
     if (original.windowPanes !== 1) return { state: 'failed', reason: 'TERMINAL_MULTI_PANE_UNSUPPORTED' }
-    const child = spawn('tmux', ['-C', 'attach-session', '-f', 'ignore-size', '-t', paneId], {
+    // A borrowed pane is reached through a grouped view session, so the person's session keeps its
+    // current window (see `createBorrowedView`). A managed pane's session is Harness's own.
+    const view = options.expectServer ? await createBorrowedView(original.sessionId) : undefined
+    if (view === null) return { state: 'failed', reason: 'tmux view session could not be created' }
+    const child = spawn('tmux', ['-C', 'attach-session', '-f', 'ignore-size', '-t', view ? `=${view}` : paneId], {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const spawned = await new Promise<boolean>((resolve) => {
@@ -530,8 +616,11 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       child.once('spawn', () => { if (!settled) { settled = true; resolve(true) } })
       child.once('error', () => { if (!settled) { settled = true; resolve(false) } })
     })
-    if (!spawned) return { state: 'failed', reason: 'tmux control client could not start' }
-    const stream = new TmuxControlStream(paneId, child, sink, readOnly, options)
+    if (!spawned) {
+      if (view) await removeBorrowedView(view)
+      return { state: 'failed', reason: 'tmux control client could not start' }
+    }
+    const stream = new TmuxControlStream(paneId, child, sink, readOnly, options, view)
     if (options.expectServer) {
       const probe = await stream.runControlCommand(`display-message -p -t ${paneId} '${SERVER_PROBE_FORMAT}'`)
       if (!probe.ok || !serverProbeMatches(probe.stdout, paneId, options.expectServer)) {
@@ -874,5 +963,6 @@ export class TmuxControlStream implements TerminalStreamHandle<TmuxRuntimeRef> {
       this.child.once('close', () => { clearTimeout(timer); resolve(true) })
     })
     if (!exited) this.child.kill('SIGTERM')
+    await this.releaseBorrowedView()
   }
 }

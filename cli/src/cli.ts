@@ -142,6 +142,7 @@ import { forgetAgentProject } from './lib/agentProject.js'
 import { createStopAgentService } from './lib/stopAgentService.js'
 import { EXTERNAL_TERMINAL_UNAVAILABLE, externalPaneRefused, isExternallyOwned, managedTmuxPaneEngines } from './lib/agentOwnership.js'
 import { ExternalTmuxController } from './lib/externalTmux.js'
+import { sweepBorrowedViews } from './lib/tmuxStream.js'
 import { createResumeAgentService } from './lib/resumeAgentService.js'
 import { buildLaunchOverrides, validateLaunchOverrides, type LaunchOverrides, type LaunchOverridesDeps, type LaunchOverridesResult, type LaunchSource } from './lib/launchOverrides.js'
 import { prepareCodexResume } from './engines/codex/portableHistory.js'
@@ -2146,6 +2147,12 @@ async function runForeground(session: AuthSession | null): Promise<void> {
   externalTmuxRef = externalTmux
   backend.externalTmux = externalTmux
   if (externalTmux) void externalTmux.refresh().catch((error) => console.error('[external-tmux] boot check failed:', error instanceof Error ? error.message : error))
+  // View sessions a crashed daemon left on the person's server (tmuxStream.ts, `createBorrowedView`).
+  if (externalTmux) {
+    void sweepBorrowedViews()
+      .then((removed) => { if (removed) console.log(`[external-tmux] removed ${removed} leftover view session(s)`) })
+      .catch((error) => console.error('[external-tmux] view sweep failed:', error instanceof Error ? error.message : error))
+  }
   // An agent's frame says what its grid's picture says (`grid.state`, and a `grid.note` when its model
   // will not answer). The picture changes on reads nobody waited for, so the frames of the agents whose
   // annotation moved are pushed again — only those, and only when it moved.

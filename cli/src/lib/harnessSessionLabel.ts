@@ -32,3 +32,26 @@ export function isHarnessSessionFor(sessionName: string, engine: string): boolea
 export function isLegacyHarnessSession(sessionName: string): boolean {
   return !isHarnessSession(sessionName) && /^[a-z][a-z0-9]*-\d{13}$/.test(sessionName)
 }
+
+/**
+ * The throwaway tmux session a stream onto a BORROWED pane attaches through (tmuxStream.ts,
+ * `createBorrowedView`): `harness_view-<daemon pid>-<n>-<random>`, grouped with the person's own
+ * session so it shares their windows but keeps its own current window. Attaching there instead of to
+ * the pane leaves the person's current window and active pane exactly as they were.
+ *
+ * Deliberately NOT under `harness-`: nothing in one is an agent, and its panes are the person's, so
+ * managed discovery (`isHarnessSession`) must never see it. Every full pane listing skips it too —
+ * `list-panes -a` lists a grouped session's panes a second time under its name.
+ */
+export const BORROWED_VIEW_SESSION_PREFIX = 'harness_view-'
+const BORROWED_VIEW_RE = /^harness_view-(\d{1,10})-\d{1,12}-[0-9a-f]{8}$/
+
+export function isBorrowedViewSession(sessionName: string): boolean {
+  return BORROWED_VIEW_RE.test(sessionName)
+}
+
+/** The pid of the daemon that made a view session; null for any other name. */
+export function borrowedViewOwnerPid(sessionName: string): number | null {
+  const match = BORROWED_VIEW_RE.exec(sessionName)
+  return match ? Number(match[1]) : null
+}

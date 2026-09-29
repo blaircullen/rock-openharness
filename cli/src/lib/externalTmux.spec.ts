@@ -81,6 +81,17 @@ describe('full tmux inventory parsing', () => {
       .toEqual({ ok: false, error: 'tmux inventory spans more than one server' })
   })
 
+  it('skips the panes a borrowed stream’s own view session lists a second time', () => {
+    const view = 'harness_view-4242-1-0badc0de'
+    const parsed = parseFullInventory(`${line({ session: view })}\n${line()}\n${line({ pane: '%9', session: view })}\n`)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.panes.map((pane) => pane.paneId)).toEqual([line().split(SEP)[3]])
+    expect(parsed.panes.some((pane) => pane.sessionName === view)).toBe(false)
+    // A person's session that merely looks similar is still theirs.
+    expect(parseFullInventory(line({ session: 'harness_view-notes' }))).toMatchObject({ ok: true, panes: [{ sessionName: 'harness_view-notes' }] })
+  })
+
   it('reads an empty listing as a server with no panes', () => {
     expect(parseFullInventory('')).toEqual({ ok: true, server: null, panes: [] })
   })

@@ -25,10 +25,11 @@
  * the pane, says the pane is gone — and even then nothing is removed; the person unenrolls.
  *
  * Managed discovery is untouched: panes in `harness-*` (or a pre-prefix `<engine>-<ms>`) session, or
- * held by any managed registry row, are refused here — they are Harness's own already.
+ * held by any managed registry row, are refused here — they are Harness's own already. A stream's own
+ * `harness_view-*` session (tmuxStream.ts) is not a place a pane lives and is skipped outright.
  */
 import { execFile } from 'node:child_process'
-import { isHarnessSession, isLegacyHarnessSession } from './harnessSessionLabel.js'
+import { isBorrowedViewSession, isHarnessSession, isLegacyHarnessSession } from './harnessSessionLabel.js'
 import { isNoTmuxServerError } from './tmuxAgentDiscovery.js'
 import { isExternallyOwned, managedTmuxPaneEngines, type ExternalTmuxOwnership } from './agentOwnership.js'
 import type { RegisteredSession } from './registry.js'
@@ -92,6 +93,8 @@ export function parseFullInventory(stdout: string): FullTmuxInventory {
     // The path is last and may itself contain the separator; everything before it may not.
     const cwd = parts.slice(FIELDS.length - 1).join(SEP)
     const [pid, start, socketPath, paneId, windowPanes, windowIndex, paneIndex, sessionName, windowName, command] = parts
+    // A borrowed stream's own view session lists the person's panes a second time (tmuxStream.ts).
+    if (isBorrowedViewSession(sessionName)) continue
     const counts = [positiveInt(pid, 1), positiveInt(start, 1), positiveInt(windowPanes, 1), positiveInt(windowIndex, 0), positiveInt(paneIndex, 0)]
     if (counts.some((value) => value === null)
       || !socketPath.startsWith('/') || socketPath.length > 1024

@@ -17,7 +17,7 @@ import type { AgentEngine } from '../engines/types.js'
 import { probeGatewayRuntime } from './gatewayRuntime.js'
 import { probeGridAssignment, type GridAssignment } from './gridAssignment.js'
 import { probeCodexHome } from './codexHomeProbe.js'
-import { buildHarnessSessionLabel, isHarnessSession, isLegacyHarnessSession } from './harnessSessionLabel.js'
+import { buildHarnessSessionLabel, isBorrowedViewSession, isHarnessSession, isLegacyHarnessSession } from './harnessSessionLabel.js'
 import { psEnv } from './childLocale.js'
 import { externalOnlyTmuxPanes, isExternallyOwned } from './agentOwnership.js'
 import type { ProcessIdentity, RegisteredSession } from './registry.js'
@@ -140,7 +140,8 @@ async function readTmuxPaneInventory(): Promise<TmuxPaneInventory> {
     if (isNoTmuxServerError(result.error)) return { ok: true, panes: [] }
     return result
   }
-  return { ok: true, panes: parsePanes(result.stdout) }
+  // A borrowed stream's view session (tmuxStream.ts) repeats the person's panes under its own name.
+  return { ok: true, panes: parsePanes(result.stdout).filter((pane) => !isBorrowedViewSession(pane.tmuxSessionName)) }
 }
 
 /** Harness-owned inventory used by existing reconciliation paths. Keep this whitelist intact. */
