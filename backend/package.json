@@ -10,6 +10,7 @@
     "build": "node build.mjs",
     "build:tsc": "tsc",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "start": "pm2 start ecosystem.config.cjs",
     "stop": "pm2 stop ecosystem.config.cjs",
     "start:runtime": "pm2-runtime start ecosystem.config.cjs",
@@ -22,6 +23,9 @@
     "test:sharing": "NODE_ENV=test HARNESS_CREDENTIAL_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= vitest run src/routes/harnessShares.test.ts src/routes/harnessLinks.test.ts src/lib/observerWs.test.ts --coverage --coverage.include=src/routes/harnessShares.ts --coverage.include=src/routes/harnessLinks.ts --coverage.include=src/lib/observerWs.ts --coverage.thresholds.lines=100 --coverage.thresholds.statements=100 --coverage.thresholds.branches=100 --coverage.thresholds.functions=100",
     "postinstall": "prisma generate"
   },
+  "overrides": {
+    "source-map-js": "1.2.2"
+  },
   "dependencies": {
     "@fastify/cors": "^10.1.0",
     "@fastify/multipart": "^9.4.0",
@@ -29,21 +33,25 @@
     "@prisma/client": "^5.22.0",
     "@types/ws": "^8.18.1",
     "dotenv": "^17.2.3",
-    "fastify": "^5.6.2",
+    "fastify": "5.12.5",
     "http-proxy": "^1.18.1",
     "ioredis": "^5.11.1",
     "ws": "^8.21.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.5",
     "@types/http-proxy": "^1.17.15",
     "@types/node": "^20.14.10",
     "@vitest/coverage-v8": "4.1.11",
-    "concurrently": "^9.1.2",
+    "concurrently": "9.2.5",
     "esbuild": "^0.27.2",
+    "eslint": "9.39.5",
+    "globals": "17.13.0",
     "prisma": "^5.22.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
+    "typescript-eslint": "8.71.1",
     "vitest": "^4.0.17"
   }
 }
