@@ -7,6 +7,10 @@
     "@marp-team/marp-cli": "4.2.3",
     "@marp-team/marp-core": "4.1.0"
   },
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12",
+    "source-map-js": "1.2.2"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs"
   }
