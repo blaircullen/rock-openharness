@@ -6,11 +6,17 @@
     "harness": "dist/cli.js",
     "hn": "dist/cli.js"
   },
+  "overrides": {
+    "source-map-js": "1.2.2",
+    "nanoid": "3.3.20",
+    "postcss": "8.5.28"
+  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "node build.mjs",
     "bundle": "node build-bundle.mjs",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:local-models": "vitest run src/lib/localModels.spec.ts src/lib/localModels.integration.spec.ts src/dsh/builtins.spec.ts src/lib/gridFleetRpc.spec.ts --coverage --coverage.include=src/lib/localModels.ts --coverage.include=src/dsh/builtins.ts --coverage.thresholds.lines=100 --coverage.thresholds.statements=100 --coverage.thresholds.functions=100 --coverage.thresholds.branches=100 --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage/local-models",
@@ -38,12 +44,16 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.5",
     "@types/node": "^20.14.10",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "4.1.10",
     "esbuild": "^0.27.2",
+    "eslint": "9.39.5",
+    "globals": "17.13.0",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
+    "typescript-eslint": "8.71.1",
     "vitest": "^4.1.10"
   },
   "description": "Run your own coding-agent CLIs (Claude Code, Codex, Cursor, OpenCode, Pi, Hermes, Command Code, Devin, Muse, Amp, Kilo, and Grok) in tmux and drive them from the web or a paired device.",
